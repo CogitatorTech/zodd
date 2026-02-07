@@ -1,17 +1,7 @@
-# Generic Makefile for Zig projects
-
-# Load environment variables from .env file
-ifneq (,$(wildcard ./.env))
-    include .env
-    export $(shell sed 's/=.*//' .env)
-else
-    $(warning `.env` file not found. Environment variables not loaded.)
-endif
-
 ################################################################################
 # Configuration and Variables
 ################################################################################
-ZIG           ?= zig
+ZIG           ?= $(shell which zig || echo ~/.local/share/zig/0.15.2/zig)
 ZIG_VERSION   := $(shell $(ZIG) version)
 BUILD_TYPE    ?= Debug
 BUILD_OPTS      = -Doptimize=$(BUILD_TYPE)
@@ -20,14 +10,18 @@ SRC_DIR       := src
 TEST_DIR      := tests
 BUILD_DIR     := zig-out
 CACHE_DIR     := .zig-cache
-DOC_SRC       := src/root.zig
+DOC_SRC       := src/lib.zig
 DOC_OUT       := docs/api/
 COVERAGE_DIR  := coverage
-BINARY_NAME   := template-zig-project
+BINARY_NAME   := zodd
 BINARY_PATH   := $(BUILD_DIR)/bin/$(BINARY_NAME)
 TEST_EXECUTABLE := $(BUILD_DIR)/bin/test
 PREFIX        ?= /usr/local
 RELEASE_MODE := ReleaseSmall
+
+# Get all .zig files in the examples directory and extract their stem names
+EXAMPLES      := $(patsubst %.zig,%,$(notdir $(wildcard examples/*.zig)))
+EXAMPLE       ?= all
 
 SHELL         := /usr/bin/env bash
 .SHELLFLAGS   := -eu -o pipefail -c
@@ -36,13 +30,14 @@ SHELL         := /usr/bin/env bash
 # Targets
 ################################################################################
 
-.PHONY: all build rebuild run test cov lint format docs clean install-deps release help coverage setup-hooks test-hooks
+.PHONY: all build rebuild example test cov lint format docs docs-serve clean install-deps release help coverage \
+ setup-hooks test-hooks
 .DEFAULT_GOAL := help
 
 help: ## Show the help messages for all targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
 
-all: build test lint docs  ## build, test, lint, and doc
+all: build test lint docs  ## build, test, lint, and docs
 
 build: ## Build project (Mode=$(BUILD_TYPE))
 	@echo "Building project in $(BUILD_TYPE) mode with $(JOBS) concurrent jobs..."
@@ -50,13 +45,20 @@ build: ## Build project (Mode=$(BUILD_TYPE))
 
 rebuild: clean build  ## clean and build
 
-run: build  ## Run the main application
-	@echo "Running $(BINARY_NAME)..."
-	$(ZIG) build run $(BUILD_OPTS) --
+example: ## Run examples (default: all tests, or 'make example EXAMPLE=e1_transitive_closure')
+ifeq ($(EXAMPLE),all)
+	@for ex in $(EXAMPLES); do \
+		echo "--> Running example: $$ex"; \
+		$(ZIG) build run-$$ex $(BUILD_OPTS); \
+	done
+else
+	@echo "--> Running example: $(EXAMPLE)"
+	$(ZIG) build run-$(EXAMPLE) $(BUILD_OPTS)
+endif
 
-test: ## Run tests and generate coverage data
-	@echo "Running tests with coverage enabled..."
-	$(ZIG) build test $(BUILD_OPTS) -Denable-coverage=true -j$(JOBS)
+test: ## Run tests
+	@echo "Running tests..."
+	$(ZIG) build test $(BUILD_OPTS) -j$(JOBS) --summary all
 
 release: ## Build in Release mode
 	@echo "Building the project in Release mode..."
@@ -90,17 +92,15 @@ docs: ## Generate API documentation
 	  done; \
 	fi
 
+docs-serve: ## Serve API documentation locally
+	@echo "Serving documentation at http://localhost:8000/..."
+	cd $(DOC_OUT) && python3 -m http.server 8000
+
 install-deps: ## Install system dependencies (for Debian-based systems)
 	@echo "Installing system dependencies..."
 	sudo apt-get update
 	sudo apt-get install -y make llvm snapd
 	sudo snap install zig  --beta --classic # Use `--edge --classic` to install the latest version
-
-coverage: ## Generate code coverage report
-	@echo "Building tests with coverage instrumentation..."
-	@zig build test -Denable-coverage=true
-	@echo "Generating coverage report..."
-	@kcov --include-pattern=src --verify coverage-out zig-out/bin/test-root
 
 setup-hooks: ## Install Git hooks (pre-commit and pre-push)
 	@echo "Installing Git hooks..."
