@@ -40,6 +40,17 @@ edge(3, 4).
 % of nodes that are reachable from each other.
 reachable(X, Y) :- edge(X, Y).
 reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
+
+% Query: find all pairs of nodes that are reachable from each other
+?- reachable(X, Y).
+
+%% Output:
+% X = 1, Y = 2
+% X = 1, Y = 3
+% X = 1, Y = 4
+% X = 2, Y = 3
+% X = 2, Y = 4
+% X = 3, Y = 4
 ```
 
 Example applications of Datalog include:
@@ -159,8 +170,7 @@ pub fn main() !void {
 You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/#zodd.lib).
 
 Alternatively, you can use the `make docs` command to generate the documentation for the current version of Zodd.
-This will generate HTML documentation in the `docs/api` directory, which you can serve locally with `make serve-docs`
-and view in a web browser.
+This will generate HTML documentation in the `docs/api` directory, which you can serve locally with `make docs-serve` and view in a web browser.
 
 ### Examples
 
@@ -180,5 +190,5 @@ Zodd is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 * The logo is from [SVG Repo](https://www.svgrepo.com/svg/469003/gravity) with some modifications.
 * This project uses the [Minish](https://github.com/CogitatorTech/minish) framework for property-based testing and
-  the [Ordered](https://github.com/CogitatorTech/minish) Zig library.
+  the [Ordered](https://github.com/CogitatorTech/minish) library.
 * Zodd is inspired and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.
