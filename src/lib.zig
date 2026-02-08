@@ -6,7 +6,7 @@ pub const iteration = @import("zodd/iteration.zig");
 pub const join = @import("zodd/join.zig");
 pub const extend = @import("zodd/extend.zig");
 
-pub const secondary_index = @import("zodd/secondary_index.zig");
+pub const index = @import("zodd/index.zig");
 pub const aggregate = @import("zodd/aggregate.zig");
 
 pub const Relation = relation.Relation;
