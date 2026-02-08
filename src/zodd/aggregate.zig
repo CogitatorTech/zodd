@@ -1,3 +1,5 @@
+//! Group-by and aggregation primitives for relations.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
@@ -18,13 +20,6 @@ pub fn aggregate(
         return Relation(ResultTuple).empty(allocator);
     }
 
-    // Since input is sorted by Tuple, but we might be grouping by arbitrary Key,
-    // the input might NOT be sorted by Key.
-    // If Key is a prefix of Tuple, it IS sorted by Key.
-    // Optimization: check if Key is prefix? For now, let's assume worst case and use a hash map or sort.
-    // Actually, sorting a persistent array is better than hash map for memory locality usually.
-
-    // Let's create an array of (Key, Val) and sort it by Key.
     const Intermediate = struct { Key, *const Tuple };
     var intermediates = try allocator.alloc(Intermediate, input.len());
     defer allocator.free(intermediates);
@@ -49,14 +44,12 @@ pub fn aggregate(
 
         for (intermediates) |item| {
             if (std.math.order(item[0], current_key) != .eq) {
-                // finish previous group
                 try results.append(allocator, .{ current_key, current_acc });
                 current_key = item[0];
                 current_acc = init_val;
             }
             current_acc = folder(current_acc, item[1]);
         }
-        // finish last group
         try results.append(allocator, .{ current_key, current_acc });
     }
 
@@ -65,7 +58,7 @@ pub fn aggregate(
 
 test "aggregate: sum by key" {
     const allocator = std.testing.allocator;
-    const Tuple = struct { u32, u32 }; // id, value
+    const Tuple = struct { u32, u32 };
 
     var data = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{
         .{ 1, 10 },

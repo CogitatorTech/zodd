@@ -1,3 +1,5 @@
+//! A Datalog variable representing a relation that evolves during iteration.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
@@ -220,6 +222,32 @@ test "Variable: complete" {
     defer v.deinit();
 
     try std.testing.expectEqual(@as(usize, 5), result.len());
+}
+
+test "Variable: totalLen" {
+    const allocator = std.testing.allocator;
+    var v = Variable(u32).init(allocator);
+    defer v.deinit();
+
+    // Init: 0
+    try std.testing.expectEqual(@as(usize, 0), v.totalLen());
+
+    // Insert to_add: 3 items
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
+    try std.testing.expectEqual(@as(usize, 3), v.totalLen());
+
+    // Changed: recent=3, stable=0, to_add=0 (moved to recent)
+    _ = try v.changed();
+    try std.testing.expectEqual(@as(usize, 3), v.totalLen());
+
+    // Changed again: recent=0, stable=3 (moved to recent then merged to stable)
+    // Wait, changed() moves recent -> stable.
+    _ = try v.changed();
+    try std.testing.expectEqual(@as(usize, 3), v.totalLen());
+
+    // Add more
+    try v.insertSlice(&[_]u32{4});
+    try std.testing.expectEqual(@as(usize, 4), v.totalLen());
 }
 
 test "gallop: basic" {

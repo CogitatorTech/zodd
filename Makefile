@@ -11,12 +11,7 @@ TEST_DIR      := tests
 BUILD_DIR     := zig-out
 CACHE_DIR     := .zig-cache
 DOC_SRC       := src/lib.zig
-DOC_OUT       := docs/api/
-COVERAGE_DIR  := coverage
-BINARY_NAME   := zodd
-BINARY_PATH   := $(BUILD_DIR)/bin/$(BINARY_NAME)
-TEST_EXECUTABLE := $(BUILD_DIR)/bin/test
-PREFIX        ?= /usr/local
+DOC_OUT       := docs/api
 RELEASE_MODE := ReleaseSmall
 
 # Get all .zig files in the examples directory and extract their stem names
@@ -56,7 +51,7 @@ else
 	$(ZIG) build run-$(EXAMPLE) $(BUILD_OPTS)
 endif
 
-test: ## Run tests
+test: ## Run all tests (unit tests and tests in the `tests/` directory)
 	@echo "Running tests..."
 	$(ZIG) build test $(BUILD_OPTS) -j$(JOBS) --summary all
 
@@ -66,7 +61,7 @@ release: ## Build in Release mode
 
 clean: ## Remove docs, build artifacts, and cache directories
 	@echo "Removing build artifacts, cache, generated docs, and coverage files..."
-	rm -rf $(BUILD_DIR) $(CACHE_DIR) $(DOC_OUT) *.profraw $(COVERAGE_DIR)
+	rm -rf $(BUILD_DIR) $(CACHE_DIR) $(DOC_OUT) *.profraw
 
 lint: ## Check code style and formatting of Zig files
 	@echo "Running code style checks..."
@@ -77,23 +72,15 @@ format: ## Format Zig files
 	$(ZIG) fmt .
 
 docs: ## Generate API documentation
-	@echo "Generating documentation from $(DOC_SRC) to $(DOC_OUT)..."
+	@echo "Generating documentation..."
+	$(ZIG) build docs
+	@echo "Copying documentation to $(DOC_OUT)..."
+	rm -rf $(DOC_OUT)
 	mkdir -p $(DOC_OUT)
-	@if $(ZIG) doc --help > /dev/null 2>&1; then \
-	  $(ZIG) doc $(DOC_SRC) --output-dir $(DOC_OUT); \
-	else \
-	  $(ZIG) test -femit-docs $(DOC_SRC); \
-	  for f in docs/*; do \
-		base=$$(basename "$$f"); \
-		if [ "$$base" = "assets" ] || [ "$$base" = "api" ]; then \
-		  continue; \
-		fi; \
-		mv "$$f" $(DOC_OUT)/; \
-	  done; \
-	fi
+	cp -r $(BUILD_DIR)/docs/* $(DOC_OUT)
 
 docs-serve: ## Serve API documentation locally
-	@echo "Serving documentation at http://localhost:8000/..."
+	@echo "Serving documentation locally"
 	cd $(DOC_OUT) && python3 -m http.server 8000
 
 install-deps: ## Install system dependencies (for Debian-based systems)

@@ -1,3 +1,5 @@
+//! Fixpoint iteration logic for semi-naive evaluation.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Variable = @import("variable.zig").Variable;
@@ -52,6 +54,10 @@ pub fn Iteration(comptime Tuple: type) type {
             }
             return any_changed;
         }
+
+        pub fn reset(self: *Self) void {
+            self.current_iteration = 0;
+        }
     };
 }
 
@@ -83,9 +89,27 @@ test "Iteration: recursion limit" {
     const v = try iter.variable();
     try v.insertSlice(&[_]u32{1});
 
-    // First iteration ok
     _ = try iter.changed();
 
-    // Second iteration should fail
     try std.testing.expectError(error.MaxIterationsExceeded, iter.changed());
+}
+
+test "Iteration: reset" {
+    const allocator = std.testing.allocator;
+    var iter = Iteration(u32).init(allocator, 10);
+    defer iter.deinit();
+
+    const v = try iter.variable();
+    try v.insertSlice(&[_]u32{1});
+
+    // Run some iterations
+    _ = try iter.changed();
+    try std.testing.expectEqual(@as(usize, 1), iter.current_iteration);
+
+    iter.reset();
+    try std.testing.expectEqual(@as(usize, 0), iter.current_iteration);
+
+    // Can run again
+    _ = try iter.changed();
+    try std.testing.expectEqual(@as(usize, 1), iter.current_iteration);
 }

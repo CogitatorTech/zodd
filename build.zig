@@ -11,6 +11,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Add Ordered dependency to zodd module
+    const ordered_dep = b.dependency("ordered", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    zodd_mod.addImport("ordered", ordered_dep.module("ordered"));
+
     // Static library artifact
     const lib = b.addLibrary(.{
         .name = "zodd",
@@ -32,7 +39,7 @@ pub fn build(b: *std.Build) void {
     // Discover and add tests from tests/ directory
     // (only available when developing zodd, not when used as a dependency)
     if (std.fs.cwd().openDir("tests", .{ .iterate = true })) |tests_dir| {
-        // Lazy-load minish dependency (only needed for property tests)
+        // Lazy-load Minish dependency (only needed for property tests)
         const minish_dep = b.dependency("minish", .{
             .target = target,
             .optimize = optimize,
@@ -104,13 +111,18 @@ pub fn build(b: *std.Build) void {
     } else |_| {}
 
     // API Documentation
-    const doc_step = b.step("docs", "Generate API documentation");
-    const doc_cmd = b.addSystemCommand(&[_][]const u8{
-        b.graph.zig_exe,
-        "build-lib",
-        "src/lib.zig",
-        "-femit-docs=docs/api",
-        "-fno-emit-bin",
+    const docs_step = b.step("docs", "Generate API documentation");
+
+    const doc_obj = b.addObject(.{
+        .name = "zodd",
+        .root_module = zodd_mod,
     });
-    doc_step.dependOn(&doc_cmd.step);
+
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = doc_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+
+    docs_step.dependOn(&install_docs.step);
 }

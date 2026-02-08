@@ -1,6 +1,6 @@
 ### Tests (Non-Unit)
 
-This directory contains non-unit tests for the project, including integration, regression, and property-based tests.
+This directory contains non-unit tests for the project, including integration, regression, property-based tests, etc.
 
 #### Running Tests
 

@@ -1,3 +1,5 @@
+//! Primitives for extending tuples with new values.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
@@ -222,7 +224,6 @@ pub fn ExtendAnti(
             const range_slice = self.relation.elements[range.start..][0..range.count];
 
             for (values.items) |val| {
-                // For anti-join, keep values NOT found in the relation
                 if (!binarySearchVal(Key, Val, range_slice, val.*)) {
                     values.items[write_idx] = val;
                     write_idx += 1;
@@ -271,7 +272,6 @@ pub fn extendInto(
         values.clearRetainingCapacity();
         leapers[min_index].propose(tuple, &values);
 
-        // Check if propose had an allocation error
         if (leapers[min_index].had_error) {
             had_error = true;
             break;
@@ -417,4 +417,105 @@ test "FilterAnti: filters matching tuples" {
 
     try std.testing.expectEqual(@as(usize, 0), filter.leaper().count(&present));
     try std.testing.expectEqual(std.math.maxInt(usize), filter.leaper().count(&absent));
+}
+
+test "ExtendAnti: proposes absent values" {
+    const allocator = std.testing.allocator;
+    const KV = struct { u32, u32 }; // Key, Val
+
+    // Relation contains {(1, 10), (1, 20)}
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{
+        .{ 1, 10 },
+        .{ 1, 20 },
+    });
+    defer rel.deinit();
+
+    var ext = ExtendAnti(u32, u32, u32).init(allocator, &rel, struct {
+        fn f(t: *const u32) u32 {
+            return t.*;
+        }
+    }.f);
+
+    const tuple: u32 = 1;
+    var values = std.ArrayListUnmanaged(*const u32){};
+    defer values.deinit(allocator);
+
+    // Candidates to check: 10 (present), 15 (absent), 20 (present), 30 (absent)
+    const v10: u32 = 10;
+    const v15: u32 = 15;
+    const v20: u32 = 20;
+    const v30: u32 = 30;
+
+    try values.append(allocator, &v10);
+    try values.append(allocator, &v15);
+    try values.append(allocator, &v20);
+    try values.append(allocator, &v30);
+
+    ext.leaper().intersect(&tuple, &values);
+
+    // Should keep only 15 and 30
+    try std.testing.expectEqual(@as(usize, 2), values.items.len);
+    try std.testing.expectEqual(@as(u32, 15), values.items[0].*);
+    try std.testing.expectEqual(@as(u32, 30), values.items[1].*);
+}
+
+test "extendInto: leapfrog join" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32 };
+    const Val = u32; // We are extending Tuple(u32) with a new u32 value
+
+    // Pattern: R(x, y) :- A(x), B(x, y), C(x, y)
+    // A provides x. B and C constrain y.
+
+    var A = Variable(Tuple).init(allocator);
+    defer A.deinit();
+    try A.insertSlice(&[_]Tuple{.{1}}); // x=1
+    _ = try A.changed();
+
+    // B = {(1, 10), (1, 20), (1, 30)}
+    var R_B = try Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+        .{ 1, 10 },
+        .{ 1, 20 },
+        .{ 1, 30 },
+    });
+    defer R_B.deinit();
+
+    // C = {(1, 20), (1, 30), (1, 40)}
+    var R_C = try Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+        .{ 1, 20 },
+        .{ 1, 30 },
+        .{ 1, 40 },
+    });
+    defer R_C.deinit();
+
+    var output = Variable(struct { u32, u32 }).init(allocator);
+    defer output.deinit();
+
+    // Leapers for B and C
+    var extB = ExtendWith(Tuple, u32, Val).init(allocator, &R_B, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var extC = ExtendWith(Tuple, u32, Val).init(allocator, &R_C, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var leapers = [_]Leaper(Tuple, Val){ extB.leaper(), extC.leaper() };
+
+    try extendInto(Tuple, Val, struct { u32, u32 }, &A, &leapers, &output, struct {
+        fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
+            return .{ t[0], v.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+
+    // Intersection of {10, 20, 30} and {20, 30, 40} is {20, 30}
+    try std.testing.expectEqual(@as(usize, 2), output.recent.len());
+    try std.testing.expectEqual(output.recent.elements[0][1], 20);
+    try std.testing.expectEqual(output.recent.elements[1][1], 30);
 }

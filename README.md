@@ -13,7 +13,7 @@
 [![Zig Version](https://img.shields.io/badge/Zig-0.15.2-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/release/CogitatorTech/zodd.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/releases/latest)
 
-A small embeddable Datalog engine in pure Zig
+A small embeddable Datalog engine in Zig
 
 </div>
 
@@ -27,7 +27,7 @@ Datalog is a declarative logic programming language that is used in deductive da
 It is a subset of [Prolog](https://en.wikipedia.org/wiki/Prolog) programming language and allows you to define things like facts and rules
 and then query those facts and rules to derive new information.
 
-Below is a simple Datalog code-snippet that defines a graph and computes the transitive closure (reachability) between nodes:
+Below is a simple Datalog code-snippet that defines a graph and computes the transitive closure of that graph:
 
 ```prolog
 % Facts: a graph (with four nodes and three edges)
@@ -36,8 +36,8 @@ edge(2, 3).
 edge(3, 4).
 
 % Rule: transitive closure of the graph
-% A transitive closure of a graph is a relation (a set of nodes) that contains all pairs of nodes
-% that are reachable from each other.
+% A transitive closure of a graph is a relation (a set of nodes) that contains all pairs
+% of nodes that are reachable from each other.
 reachable(X, Y) :- edge(X, Y).
 reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
 ```
@@ -179,5 +179,6 @@ Zodd is licensed under the MIT License (see [LICENSE](LICENSE)).
 ### Acknowledgements
 
 * The logo is from [SVG Repo](https://www.svgrepo.com/svg/469003/gravity) with some modifications.
-* This project uses the [Minish](https://github.com/CogitatorTech/minish) framework for property-based testing.
-* Zodd is inspired and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust 🦀.
+* This project uses the [Minish](https://github.com/CogitatorTech/minish) framework for property-based testing and
+  the [Ordered](https://github.com/CogitatorTech/minish) Zig library.
+* Zodd is inspired and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.

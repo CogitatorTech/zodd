@@ -1,3 +1,5 @@
+//! Core Relation data structure: a sorted list of unique tuples.
+
 const std = @import("std");
 const mem = std.mem;
 const sort = std.sort;
@@ -133,8 +135,8 @@ pub fn Relation(comptime Tuple: type) type {
             return write_idx;
         }
         pub fn save(self: Self, writer: anytype) !void {
-            try writer.writeAll("ZODDREL"); // Magic
-            try writer.writeInt(u8, 1, .little); // Version
+            try writer.writeAll("ZODDREL");
+            try writer.writeInt(u8, 1, .little);
             try writer.writeInt(u64, self.elements.len, .little);
             const bytes = std.mem.sliceAsBytes(self.elements);
             try writer.writeAll(bytes);

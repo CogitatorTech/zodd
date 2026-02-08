@@ -1,3 +1,5 @@
+//! Join algorithms including merge-join and leapfrog trie join.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
@@ -135,6 +137,46 @@ pub fn joinInto(
     }
 }
 
+pub fn joinAnti(
+    comptime Key: type,
+    comptime Val: type,
+    comptime FilterVal: type,
+    comptime Result: type,
+    input: *Variable(struct { Key, Val }),
+    filter: *Variable(struct { Key, FilterVal }),
+    output: *Variable(Result),
+    logic: fn (*const Key, *const Val) Result,
+) Allocator.Error!void {
+    const ResultList = std.ArrayListUnmanaged(Result);
+    var results = ResultList{};
+    defer results.deinit(output.allocator);
+
+    for (input.recent.elements) |*tuple| {
+        const key = tuple[0];
+        var found = false;
+
+        if (countMatchingKeys(Key, FilterVal, filter.recent.elements, key) > 0) {
+            found = true;
+        } else {
+            for (filter.stable.items) |*batch| {
+                if (countMatchingKeys(Key, FilterVal, batch.elements, key) > 0) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (!found) {
+            try results.append(output.allocator, logic(&key, &tuple[1]));
+        }
+    }
+
+    if (results.items.len > 0) {
+        const rel = try Relation(Result).fromSlice(output.allocator, results.items);
+        try output.insert(rel);
+    }
+}
+
 test "joinHelper: basic" {
     const Tuple1 = struct { u32, u32 };
     const Tuple2 = struct { u32, u32 };
@@ -201,4 +243,36 @@ test "joinInto: variable join" {
 
     _ = try output.changed();
     try std.testing.expectEqual(@as(usize, 1), output.recent.len());
+}
+
+test "joinAnti: simple negation" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var input = Variable(Tuple).init(allocator);
+    defer input.deinit();
+
+    var filter = Variable(Tuple).init(allocator);
+    defer filter.deinit();
+
+    var output = Variable(Tuple).init(allocator);
+    defer output.deinit();
+
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
+    try filter.insertSlice(&[_]Tuple{.{ 2, 200 }});
+
+    _ = try input.changed();
+    _ = try filter.changed();
+
+    try joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
+        fn logic(key: *const u32, val: *const u32) Tuple {
+            return .{ key.*, val.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+
+    try std.testing.expectEqual(@as(usize, 2), output.recent.len());
+    try std.testing.expectEqual(output.recent.elements[0][0], 1);
+    try std.testing.expectEqual(output.recent.elements[1][0], 3);
 }
