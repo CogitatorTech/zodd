@@ -66,9 +66,12 @@ fn gallopKey(comptime Key: type, comptime Val: type, slice: []const struct { Key
     var step: usize = 1;
     var pos: usize = 0;
 
-    while (pos + step < slice.len and std.math.order(slice[pos + step][0], target_key) == .lt) {
-        pos += step;
-        step *= 2;
+    while (true) {
+        const next_pos = pos + step;
+        if (next_pos >= slice.len or next_pos < pos) break;
+        if (std.math.order(slice[next_pos][0], target_key) != .lt) break;
+        pos = next_pos;
+        step *|= 2;
     }
 
     const end = @min(pos + step + 1, slice.len);

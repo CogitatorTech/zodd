@@ -256,8 +256,9 @@ pub fn extendInto(
     var had_error = false;
 
     for (source.recent.elements) |*tuple| {
-        var min_index: usize = std.math.maxInt(usize);
-        var min_count: usize = std.math.maxInt(usize);
+        const sentinel = std.math.maxInt(usize);
+        var min_index: usize = sentinel;
+        var min_count: usize = sentinel;
 
         for (leapers, 0..) |leaper, i| {
             const cnt = leaper.count(tuple);
@@ -267,12 +268,13 @@ pub fn extendInto(
             }
         }
 
-        if (min_count == 0) continue;
+        if (min_index == sentinel or min_count == 0) continue;
 
         values.clearRetainingCapacity();
-        leapers[min_index].propose(tuple, &values);
+        var min_leaper = &leapers[min_index];
+        min_leaper.propose(tuple, &values);
 
-        if (leapers[min_index].had_error) {
+        if (min_leaper.had_error) {
             had_error = true;
             break;
         }
@@ -518,4 +520,41 @@ test "extendInto: leapfrog join" {
     try std.testing.expectEqual(@as(usize, 2), output.recent.len());
     try std.testing.expectEqual(output.recent.elements[0][1], 20);
     try std.testing.expectEqual(output.recent.elements[1][1], 30);
+}
+
+test "extendInto: only anti leapers is harmless" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32 };
+    const Val = u32;
+
+    var source = Variable(Tuple).init(allocator);
+    defer source.deinit();
+
+    try source.insertSlice(&[_]Tuple{.{1}});
+    _ = try source.changed();
+
+    const KV = struct { u32, u32 };
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{});
+    defer rel.deinit();
+
+    var output = Variable(struct { u32, u32 }).init(allocator);
+    defer output.deinit();
+
+    var ext = ExtendAnti(Tuple, u32, Val).init(allocator, &rel, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var leapers = [_]Leaper(Tuple, Val){ext.leaper()};
+
+    try extendInto(Tuple, Val, struct { u32, u32 }, &source, leapers[0..], &output, struct {
+        fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
+            return .{ t[0], v.* };
+        }
+    }.logic);
+
+    const changed = try output.changed();
+    try std.testing.expect(!changed);
+    try std.testing.expectEqual(@as(usize, 0), output.recent.len());
 }

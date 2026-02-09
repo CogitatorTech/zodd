@@ -56,11 +56,8 @@ pub fn SecondaryIndex(
             }
         }
 
-        pub fn get(self: *const Self, key: Key) ?Relation(Tuple) {
-            if (self.map.get(key)) |rel| {
-                return rel.*;
-            }
-            return null;
+        pub fn get(self: *const Self, key: Key) ?*const Relation(Tuple) {
+            return self.map.get(key);
         }
 
         pub fn getRange(self: *Self, start_key: Key, end_key: Key) !Relation(Tuple) {

@@ -163,6 +163,17 @@ pub fn Relation(comptime Tuple: type) type {
             const bytes = std.mem.sliceAsBytes(elements);
             try reader.readNoEof(bytes);
 
+            sort.pdq(Tuple, elements, {}, lessThan);
+            const unique_len = deduplicate(elements);
+
+            if (unique_len < elements.len) {
+                const shrunk = allocator.realloc(elements, unique_len) catch elements[0..unique_len];
+                return Self{
+                    .elements = shrunk,
+                    .allocator = allocator,
+                };
+            }
+
             return Self{
                 .elements = elements,
                 .allocator = allocator,
@@ -245,4 +256,34 @@ test "Relation: merge" {
 
     try std.testing.expectEqual(@as(usize, 5), merged.len());
     try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3, 4, 5 }, merged.elements);
+}
+
+test "Relation: load normalizes order" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(allocator);
+
+    var writer = buffer.writer(allocator);
+    try writer.writeAll("ZODDREL");
+    try writer.writeInt(u8, 1, .little);
+    const raw = [_]Tuple{
+        .{ 2, 20 },
+        .{ 1, 10 },
+        .{ 2, 20 },
+    };
+    try writer.writeInt(u64, raw.len, .little);
+    for (raw) |tuple| {
+        const tuple_arr = [_]Tuple{tuple};
+        try writer.writeAll(std.mem.sliceAsBytes(&tuple_arr));
+    }
+
+    var reader = std.io.fixedBufferStream(buffer.items);
+    var rel = try Relation(Tuple).load(allocator, reader.reader());
+    defer rel.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), rel.len());
+    try std.testing.expectEqual(Tuple{ 1, 10 }, rel.elements[0]);
+    try std.testing.expectEqual(Tuple{ 2, 20 }, rel.elements[1]);
 }

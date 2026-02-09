@@ -125,6 +125,20 @@ pub fn Variable(comptime Tuple: type) type {
         }
 
         pub fn complete(self: *Self) Allocator.Error!Rel {
+            if (!self.recent.isEmpty()) {
+                try self.stable.append(self.allocator, self.recent);
+                self.recent = Rel.empty(self.allocator);
+            }
+
+            if (self.to_add.items.len > 0) {
+                var to_add = self.to_add.pop().?;
+                while (self.to_add.items.len > 0) {
+                    var more = self.to_add.pop().?;
+                    to_add = try to_add.merge(&more);
+                }
+                try self.stable.append(self.allocator, to_add);
+            }
+
             if (self.stable.items.len == 0) {
                 return Rel.empty(self.allocator);
             }
@@ -149,9 +163,12 @@ pub fn gallop(comptime T: type, slice: []const T, target: T) []const T {
     var step: usize = 1;
     var pos: usize = 0;
 
-    while (pos + step < slice.len and Rel.compareTuples(slice[pos + step], target) == .lt) {
-        pos += step;
-        step *= 2;
+    while (true) {
+        const next_pos = pos + step;
+        if (next_pos >= slice.len or next_pos < pos) break;
+        if (Rel.compareTuples(slice[next_pos], target) != .lt) break;
+        pos = next_pos;
+        step *|= 2;
     }
 
     const end = @min(pos + step + 1, slice.len);
