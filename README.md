@@ -27,7 +27,8 @@ Datalog is a declarative logic programming language that is used in deductive da
 It is a subset of [Prolog](https://en.wikipedia.org/wiki/Prolog) programming language and allows you to define things like facts and rules
 and then query those facts and rules to derive new information.
 
-Below is a simple Datalog code-snippet that defines a graph and computes the transitive closure of that graph:
+Below is a simple Datalog code-snippet that defines a graph and computes the transitive closure of that graph.
+The code in the [Simple Example](#simple-example) section shows how to implement the same logic using Zodd in Zig.
 
 ```prolog
 % Facts: a graph (with four nodes and three edges)
@@ -61,7 +62,7 @@ Example applications of Datalog include:
 
 ### Why Zodd?
 
-- Written in pure Zig with a simple API and no external dependencies
+- Written in pure Zig with a simple API
 - Supports a subset of relational algebra with sorted, deduplicated relations
 - Supports fast incremental rule computation
 - Supports multi-way joins and anti-join operations
@@ -106,7 +107,7 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-#### A Simple Example
+#### Simple Example
 
 Finally, you can `@import("zodd")` and start using it in your Zig project.
 
@@ -190,5 +191,5 @@ Zodd is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 * The logo is from [SVG Repo](https://www.svgrepo.com/svg/469003/gravity) with some modifications.
 * This project uses the [Minish](https://github.com/CogitatorTech/minish) framework for property-based testing and
-  the [Ordered](https://github.com/CogitatorTech/minish) library.
+  the [Ordered](https://github.com/CogitatorTech/ordered) library for B-tree indices.
 * Zodd is inspired and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.

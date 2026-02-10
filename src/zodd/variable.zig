@@ -280,3 +280,39 @@ test "gallop: basic" {
     const result3 = gallop(u32, &slice, 20);
     try std.testing.expectEqual(@as(usize, 0), result3.len);
 }
+
+test "Variable: changed filters against stable batches" {
+    const allocator = std.testing.allocator;
+
+    var v = Variable(u32).init(allocator);
+    defer v.deinit();
+
+    try v.insertSlice(&[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 });
+    _ = try v.changed();
+    _ = try v.changed();
+
+    try v.insertSlice(&[_]u32{ 2, 4, 6, 8, 9 });
+    const changed = try v.changed();
+
+    try std.testing.expect(changed);
+    try std.testing.expectEqual(@as(usize, 1), v.recent.len());
+    try std.testing.expectEqual(@as(u32, 9), v.recent.elements[0]);
+}
+
+test "Variable: changed with recent and to_add" {
+    const allocator = std.testing.allocator;
+
+    var v = Variable(u32).init(allocator);
+    defer v.deinit();
+
+    try v.insertSlice(&[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+    _ = try v.changed();
+
+    try v.insertSlice(&[_]u32{ 3, 5, 11, 12 });
+    const changed = try v.changed();
+
+    try std.testing.expect(changed);
+    try std.testing.expectEqual(@as(usize, 2), v.recent.len());
+    try std.testing.expectEqual(@as(u32, 11), v.recent.elements[0]);
+    try std.testing.expectEqual(@as(u32, 12), v.recent.elements[1]);
+}

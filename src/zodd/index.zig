@@ -41,7 +41,9 @@ pub fn SecondaryIndex(
             if (self.map.getPtr(key)) |rel_ptr| {
                 const single = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
                 var mutable_single = single;
-                const new_rel = try rel_ptr.merge(&mutable_single);
+                errdefer mutable_single.deinit();
+                var old_rel = rel_ptr.*;
+                const new_rel = try old_rel.merge(&mutable_single);
                 rel_ptr.* = new_rel;
             } else {
                 const rel = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
@@ -115,4 +117,29 @@ test "SecondaryIndex: basic usage" {
     var range_rel = try idx.getRange(10, 20);
     defer range_rel.deinit();
     try std.testing.expectEqual(@as(usize, 3), range_rel.len());
+}
+
+test "SecondaryIndex: getRange empty and inverted" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    const Index = SecondaryIndex(Tuple, u32, struct {
+        fn extract(t: Tuple) u32 {
+            return t[0];
+        }
+    }.extract, u32Compare, 4);
+
+    var idx = Index.init(allocator);
+    defer idx.deinit();
+
+    try idx.insert(.{ 1, 10 });
+    try idx.insert(.{ 3, 30 });
+
+    var empty = try idx.getRange(4, 5);
+    defer empty.deinit();
+    try std.testing.expectEqual(@as(usize, 0), empty.len());
+
+    var inverted = try idx.getRange(5, 4);
+    defer inverted.deinit();
+    try std.testing.expectEqual(@as(usize, 0), inverted.len());
 }

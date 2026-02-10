@@ -158,11 +158,17 @@ pub fn joinAnti(
         const key = tuple[0];
         var found = false;
 
-        if (countMatchingKeys(Key, FilterVal, filter.recent.elements, key) > 0) {
-            found = true;
-        } else {
+        {
+            const slice = gallopKey(Key, FilterVal, filter.recent.elements, key);
+            if (slice.len > 0 and countMatchingKeys(Key, FilterVal, slice, key) > 0) {
+                found = true;
+            }
+        }
+
+        if (!found) {
             for (filter.stable.items) |*batch| {
-                if (countMatchingKeys(Key, FilterVal, batch.elements, key) > 0) {
+                const slice = gallopKey(Key, FilterVal, batch.elements, key);
+                if (slice.len > 0 and countMatchingKeys(Key, FilterVal, slice, key) > 0) {
                     found = true;
                     break;
                 }
@@ -278,4 +284,73 @@ test "joinAnti: simple negation" {
     try std.testing.expectEqual(@as(usize, 2), output.recent.len());
     try std.testing.expectEqual(output.recent.elements[0][0], 1);
     try std.testing.expectEqual(output.recent.elements[1][0], 3);
+}
+
+test "joinHelper: multiplicative matches" {
+    const allocator = std.testing.allocator;
+    const T1 = struct { u32, u32 };
+    const T2 = struct { u32, u32 };
+
+    var input1 = try Relation(T1).fromSlice(allocator, &[_]T1{
+        .{ 1, 10 },
+        .{ 1, 11 },
+        .{ 2, 20 },
+    });
+    defer input1.deinit();
+
+    var input2 = try Relation(T2).fromSlice(allocator, &[_]T2{
+        .{ 1, 100 },
+        .{ 1, 101 },
+        .{ 2, 200 },
+    });
+    defer input2.deinit();
+
+    const ResultList = std.ArrayListUnmanaged(struct { u32, u32, u32 });
+    const Context = struct {
+        results: *ResultList,
+        alloc: Allocator,
+
+        fn callback(self: @This(), key: *const u32, v1: *const u32, v2: *const u32) void {
+            self.results.append(self.alloc, .{ key.*, v1.*, v2.* }) catch {};
+        }
+    };
+
+    var results = ResultList{};
+    defer results.deinit(allocator);
+
+    joinHelper(u32, u32, u32, &input1, &input2, Context{ .results = &results, .alloc = allocator }, Context.callback);
+
+    try std.testing.expectEqual(@as(usize, 5), results.items.len);
+}
+
+test "joinInto: stable batches only" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var v1 = Variable(Tuple).init(allocator);
+    defer v1.deinit();
+
+    var v2 = Variable(Tuple).init(allocator);
+    defer v2.deinit();
+
+    var output = Variable(struct { u32, u32, u32 }).init(allocator);
+    defer output.deinit();
+
+    try v1.insertSlice(&[_]Tuple{.{ 1, 10 }});
+    _ = try v1.changed();
+    _ = try v1.changed();
+
+    try v2.insertSlice(&[_]Tuple{ .{ 1, 100 }, .{ 2, 200 } });
+    _ = try v2.changed();
+    _ = try v2.changed();
+
+    try joinInto(u32, u32, u32, struct { u32, u32, u32 }, &v1, &v2, &output, struct {
+        fn logic(key: *const u32, v1_val: *const u32, v2_val: *const u32) struct { u32, u32, u32 } {
+            return .{ key.*, v1_val.*, v2_val.* };
+        }
+    }.logic);
+
+    const changed = try output.changed();
+    try std.testing.expect(!changed);
+    try std.testing.expectEqual(@as(usize, 0), output.recent.len());
 }

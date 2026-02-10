@@ -143,6 +143,10 @@ pub fn Relation(comptime Tuple: type) type {
         }
 
         pub fn load(allocator: Allocator, reader: anytype) !Self {
+            return loadWithLimit(allocator, reader, std.math.maxInt(usize));
+        }
+
+        pub fn loadWithLimit(allocator: Allocator, reader: anytype, max_len: usize) !Self {
             const magic = try reader.readBytesNoEof(7);
             if (!std.mem.eql(u8, &magic, "ZODDREL")) {
                 return error.InvalidFormat;
@@ -152,9 +156,13 @@ pub fn Relation(comptime Tuple: type) type {
                 return error.UnsupportedVersion;
             }
 
-            const length = try reader.readInt(u64, .little);
+            const length_u64 = try reader.readInt(u64, .little);
+            const length = std.math.cast(usize, length_u64) orelse return error.InvalidFormat;
             if (length == 0) {
                 return Self.empty(allocator);
+            }
+            if (length > max_len) {
+                return error.TooLarge;
             }
 
             const elements = try allocator.alloc(Tuple, length);
@@ -286,4 +294,41 @@ test "Relation: load normalizes order" {
     try std.testing.expectEqual(@as(usize, 2), rel.len());
     try std.testing.expectEqual(Tuple{ 1, 10 }, rel.elements[0]);
     try std.testing.expectEqual(Tuple{ 2, 20 }, rel.elements[1]);
+}
+
+test "Relation: loadWithLimit zero length with zero limit" {
+    const allocator = std.testing.allocator;
+
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(allocator);
+
+    var writer = buffer.writer(allocator);
+    try writer.writeAll("ZODDREL");
+    try writer.writeInt(u8, 1, .little);
+    try writer.writeInt(u64, 0, .little);
+
+    var reader = std.io.fixedBufferStream(buffer.items);
+    var rel = try Relation(u32).loadWithLimit(allocator, reader.reader(), 0);
+    defer rel.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), rel.len());
+}
+
+test "Relation: scalar save and load" {
+    const allocator = std.testing.allocator;
+
+    var original = try Relation(u32).fromSlice(allocator, &[_]u32{ 3, 1, 2, 2 });
+    defer original.deinit();
+
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(allocator);
+
+    try original.save(buffer.writer(allocator));
+
+    var fbs = std.io.fixedBufferStream(buffer.items);
+    var loaded = try Relation(u32).load(allocator, fbs.reader());
+    defer loaded.deinit();
+
+    try std.testing.expectEqual(original.len(), loaded.len());
+    try std.testing.expectEqualSlices(u32, original.elements, loaded.elements);
 }

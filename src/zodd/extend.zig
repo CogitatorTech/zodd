@@ -268,10 +268,11 @@ pub fn extendInto(
             }
         }
 
-        if (min_index == sentinel or min_count == 0) continue;
+        if (min_index == sentinel or min_count == 0 or min_count == sentinel) continue;
 
         values.clearRetainingCapacity();
         var min_leaper = &leapers[min_index];
+        min_leaper.had_error = false;
         min_leaper.propose(tuple, &values);
 
         if (min_leaper.had_error) {
@@ -557,4 +558,65 @@ test "extendInto: only anti leapers is harmless" {
     const changed = try output.changed();
     try std.testing.expect(!changed);
     try std.testing.expectEqual(@as(usize, 0), output.recent.len());
+}
+
+test "ExtendWith: count zero does not propose values" {
+    const allocator = std.testing.allocator;
+    const KV = struct { u32, u32 };
+    const Tuple = u32;
+
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{
+        .{ 2, 20 },
+    });
+    defer rel.deinit();
+
+    var ext = ExtendWith(Tuple, u32, u32).init(allocator, &rel, struct {
+        fn f(t: *const Tuple) u32 {
+            return t.*;
+        }
+    }.f);
+
+    const tuple: Tuple = 1;
+    const cnt = ext.leaper().count(&tuple);
+    try std.testing.expectEqual(@as(usize, 0), cnt);
+
+    var values = std.ArrayListUnmanaged(*const u32){};
+    defer values.deinit(allocator);
+    var leaper = ext.leaper();
+    leaper.propose(&tuple, &values);
+    try std.testing.expectEqual(@as(usize, 0), values.items.len);
+}
+
+test "FilterAnti and ExtendAnti: empty relation" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32 };
+    const KV = struct { u32, u32 };
+
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{});
+    defer rel.deinit();
+
+    var filter = FilterAnti(Tuple, u32, u32).init(allocator, &rel, struct {
+        fn f(t: *const Tuple) KV {
+            return .{ t[0], 0 };
+        }
+    }.f);
+
+    var ext = ExtendAnti(Tuple, u32, u32).init(allocator, &rel, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    const tuple: Tuple = .{1};
+    try std.testing.expectEqual(std.math.maxInt(usize), filter.leaper().count(&tuple));
+
+    const v10: u32 = 10;
+    const v20: u32 = 20;
+    var values = std.ArrayListUnmanaged(*const u32){};
+    defer values.deinit(allocator);
+    try values.append(allocator, &v10);
+    try values.append(allocator, &v20);
+
+    ext.leaper().intersect(&tuple, &values);
+    try std.testing.expectEqual(@as(usize, 2), values.items.len);
 }

@@ -182,3 +182,193 @@ test "same generation: parent-child hierarchy" {
 
     try testing.expectEqual(@as(usize, 9), result.len());
 }
+
+test "aggregate: group sum integration" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var rel = try zodd.Relation(Tuple).fromSlice(allocator, &[_]Tuple{
+        .{ 1, 10 },
+        .{ 1, 20 },
+        .{ 2, 5 },
+    });
+    defer rel.deinit();
+
+    const key_func = struct {
+        fn key(t: *const Tuple) u32 {
+            return t[0];
+        }
+    };
+    const folder = struct {
+        fn fold(acc: u32, t: *const Tuple) u32 {
+            return acc + t[1];
+        }
+    };
+
+    var result = try zodd.aggregate.aggregate(Tuple, u32, u32, allocator, &rel, key_func.key, 0, folder.fold);
+    defer result.deinit();
+
+    try testing.expectEqual(@as(usize, 2), result.len());
+    try testing.expectEqual(@as(u32, 1), result.elements[0][0]);
+    try testing.expectEqual(@as(u32, 30), result.elements[0][1]);
+    try testing.expectEqual(@as(u32, 2), result.elements[1][0]);
+    try testing.expectEqual(@as(u32, 5), result.elements[1][1]);
+}
+
+test "joinInto: incremental updates integration" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+    const Out = struct { u32, u32, u32 };
+
+    var v1 = zodd.Variable(Tuple).init(allocator);
+    defer v1.deinit();
+
+    var v2 = zodd.Variable(Tuple).init(allocator);
+    defer v2.deinit();
+
+    var out = zodd.Variable(Out).init(allocator);
+    defer out.deinit();
+
+    try v1.insertSlice(&[_]Tuple{.{ 1, 10 }});
+    try v2.insertSlice(&[_]Tuple{ .{ 1, 100 }, .{ 2, 200 } });
+
+    _ = try v1.changed();
+    _ = try v2.changed();
+
+    try zodd.joinInto(u32, u32, u32, Out, &v1, &v2, &out, struct {
+        fn logic(key: *const u32, v1_val: *const u32, v2_val: *const u32) Out {
+            return .{ key.*, v1_val.*, v2_val.* };
+        }
+    }.logic);
+
+    _ = try out.changed();
+    try testing.expectEqual(@as(usize, 1), out.recent.len());
+
+    _ = try v1.changed();
+    _ = try v2.changed();
+    _ = try out.changed();
+
+    try v2.insertSlice(&[_]Tuple{.{ 1, 101 }});
+    _ = try v2.changed();
+
+    try zodd.joinInto(u32, u32, u32, Out, &v1, &v2, &out, struct {
+        fn logic(key: *const u32, v1_val: *const u32, v2_val: *const u32) Out {
+            return .{ key.*, v1_val.*, v2_val.* };
+        }
+    }.logic);
+
+    _ = try out.changed();
+    try testing.expectEqual(@as(usize, 1), out.recent.len());
+    try testing.expectEqual(@as(u32, 101), out.recent.elements[0][2]);
+}
+
+test "extendInto: extend and anti integration" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32 };
+    const Val = u32;
+    const Out = struct { u32, u32 };
+
+    var source = zodd.Variable(Tuple).init(allocator);
+    defer source.deinit();
+
+    try source.insertSlice(&[_]Tuple{ .{1}, .{2} });
+    _ = try source.changed();
+
+    var allow = try zodd.Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+        .{ 1, 10 },
+        .{ 1, 20 },
+        .{ 2, 30 },
+    });
+    defer allow.deinit();
+
+    var block = try zodd.Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+        .{ 1, 10 },
+    });
+    defer block.deinit();
+
+    var output = zodd.Variable(Out).init(allocator);
+    defer output.deinit();
+
+    var ext_allow = zodd.ExtendWith(Tuple, u32, Val).init(allocator, &allow, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var ext_block = zodd.ExtendAnti(Tuple, u32, Val).init(allocator, &block, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var leapers = [_]zodd.Leaper(Tuple, Val){ ext_allow.leaper(), ext_block.leaper() };
+
+    try zodd.extendInto(Tuple, Val, Out, &source, &leapers, &output, struct {
+        fn logic(t: *const Tuple, v: *const Val) Out {
+            return .{ t[0], v.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+    try testing.expectEqual(@as(usize, 2), output.recent.len());
+    try testing.expectEqual(Out{ 1, 20 }, output.recent.elements[0]);
+    try testing.expectEqual(Out{ 2, 30 }, output.recent.elements[1]);
+}
+
+test "SecondaryIndex: getRange randomized integration" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    const Index = zodd.index.SecondaryIndex(Tuple, u32, struct {
+        fn extract(t: Tuple) u32 {
+            return t[0];
+        }
+    }.extract, struct {
+        fn cmp(a: u32, b: u32) std.math.Order {
+            return std.math.order(a, b);
+        }
+    }.cmp, 4);
+
+    var idx = Index.init(allocator);
+    defer idx.deinit();
+
+    var all = std.ArrayListUnmanaged(Tuple){};
+    defer all.deinit(allocator);
+
+    var prng = std.Random.DefaultPrng.init(0x5a5a5a5a);
+    const rand = prng.random();
+
+    var i: usize = 0;
+    while (i < 50) : (i += 1) {
+        const k = rand.intRangeAtMost(u32, 0, 20);
+        const v = rand.intRangeAtMost(u32, 0, 1000);
+        const t = Tuple{ k, v };
+        try idx.insert(t);
+        try all.append(allocator, t);
+    }
+
+    var r: usize = 0;
+    while (r < 10) : (r += 1) {
+        const a = rand.intRangeAtMost(u32, 0, 20);
+        const b = rand.intRangeAtMost(u32, 0, 20);
+        const start = @min(a, b);
+        const end = @max(a, b);
+
+        var expected_list = std.ArrayListUnmanaged(Tuple){};
+        defer expected_list.deinit(allocator);
+
+        for (all.items) |t| {
+            if (t[0] >= start and t[0] <= end) {
+                try expected_list.append(allocator, t);
+            }
+        }
+
+        var expected = try zodd.Relation(Tuple).fromSlice(allocator, expected_list.items);
+        defer expected.deinit();
+
+        var got = try idx.getRange(start, end);
+        defer got.deinit();
+
+        try testing.expectEqualSlices(Tuple, expected.elements, got.elements);
+    }
+}

@@ -96,7 +96,6 @@ test "regression: variable deduplication across multiple rounds" {
     try testing.expectEqual(@as(usize, 5), result.len());
 }
 
-
 test "regression: extendInto error detection with allocation failure simulation" {
     const allocator = testing.allocator;
     const Tuple = struct { u32 };
@@ -243,3 +242,231 @@ test "regression: Relation save and load with tuples" {
     try testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
 }
 
+test "regression: extendInto with only ExtendAnti should not call propose" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32 };
+    const Val = u32;
+
+    var source = zodd.Variable(Tuple).init(allocator);
+    defer source.deinit();
+
+    try source.insertSlice(&[_]Tuple{.{1}});
+    _ = try source.changed();
+
+    const KV = struct { u32, u32 };
+    var rel = try zodd.Relation(KV).fromSlice(allocator, &[_]KV{
+        .{ 2, 100 },
+    });
+    defer rel.deinit();
+
+    var output = zodd.Variable(struct { u32, u32 }).init(allocator);
+    defer output.deinit();
+
+    var ext = zodd.ExtendAnti(Tuple, u32, Val).init(allocator, &rel, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var leapers = [_]zodd.Leaper(Tuple, Val){ext.leaper()};
+
+    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &source, leapers[0..], &output, struct {
+        fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
+            return .{ t[0], v.* };
+        }
+    }.logic);
+
+    const changed = try output.changed();
+    try testing.expect(!changed);
+}
+
+test "regression: SecondaryIndex does not leak memory on repeated inserts" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    const Index = zodd.index.SecondaryIndex(Tuple, u32, struct {
+        fn extract(t: Tuple) u32 {
+            return t[0];
+        }
+    }.extract, struct {
+        fn cmp(a: u32, b: u32) std.math.Order {
+            return std.math.order(a, b);
+        }
+    }.cmp, 4);
+
+    var idx = Index.init(allocator);
+    defer idx.deinit();
+
+    try idx.insert(.{ 1, 100 });
+    try idx.insert(.{ 1, 200 });
+    try idx.insert(.{ 1, 300 });
+
+    const rel = idx.get(1).?;
+    try testing.expectEqual(@as(usize, 3), rel.len());
+}
+
+test "regression: joinAnti searches full filter" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var input = zodd.Variable(Tuple).init(allocator);
+    defer input.deinit();
+
+    var filter = zodd.Variable(Tuple).init(allocator);
+    defer filter.deinit();
+
+    var output = zodd.Variable(Tuple).init(allocator);
+    defer output.deinit();
+
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
+    try filter.insertSlice(&[_]Tuple{ .{ 1, 100 }, .{ 3, 300 } });
+
+    _ = try input.changed();
+    _ = try filter.changed();
+
+    try zodd.joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
+        fn logic(key: *const u32, val: *const u32) Tuple {
+            return .{ key.*, val.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+    try testing.expectEqual(@as(usize, 1), output.recent.len());
+    try testing.expectEqual(@as(u32, 2), output.recent.elements[0][0]);
+}
+
+test "regression: Relation loadWithLimit rejects large length" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(allocator);
+
+    var writer = buffer.writer(allocator);
+    try writer.writeAll("ZODDREL");
+    try writer.writeInt(u8, 1, .little);
+    try writer.writeInt(u64, 2, .little);
+
+    const t1 = Tuple{ 1, 10 };
+    const t2 = Tuple{ 2, 20 };
+    const arr1 = [_]Tuple{t1};
+    const arr2 = [_]Tuple{t2};
+    try writer.writeAll(std.mem.sliceAsBytes(&arr1));
+    try writer.writeAll(std.mem.sliceAsBytes(&arr2));
+
+    var reader = std.io.fixedBufferStream(buffer.items);
+    try testing.expectError(error.TooLarge, zodd.Relation(Tuple).loadWithLimit(allocator, reader.reader(), 1));
+}
+
+test "regression: extendInto resets leaper error" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32 };
+    const Val = u32;
+
+    var source = zodd.Variable(Tuple).init(allocator);
+    defer source.deinit();
+
+    try source.insertSlice(&[_]Tuple{.{1}});
+    _ = try source.changed();
+
+    var rel = try zodd.Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+        .{ 1, 10 },
+        .{ 1, 20 },
+    });
+    defer rel.deinit();
+
+    var output = zodd.Variable(struct { u32, u32 }).init(allocator);
+    defer output.deinit();
+
+    var ext = zodd.ExtendWith(Tuple, u32, Val).init(allocator, &rel, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var leapers = [_]zodd.Leaper(Tuple, Val){ext.leaper()};
+    leapers[0].had_error = true;
+
+    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &source, &leapers, &output, struct {
+        fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
+            return .{ t[0], v.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+    try testing.expectEqual(@as(usize, 2), output.recent.len());
+}
+
+test "regression: loadWithLimit rejects invalid magic" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(allocator);
+
+    var writer = buffer.writer(allocator);
+    try writer.writeAll("BADMAGC");
+    try writer.writeInt(u8, 1, .little);
+    try writer.writeInt(u64, 1, .little);
+
+    const t1 = Tuple{ 1, 10 };
+    const arr1 = [_]Tuple{t1};
+    try writer.writeAll(std.mem.sliceAsBytes(&arr1));
+
+    var reader = std.io.fixedBufferStream(buffer.items);
+    try testing.expectError(error.InvalidFormat, zodd.Relation(Tuple).loadWithLimit(allocator, reader.reader(), 10));
+}
+
+test "regression: loadWithLimit rejects unsupported version" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(allocator);
+
+    var writer = buffer.writer(allocator);
+    try writer.writeAll("ZODDREL");
+    try writer.writeInt(u8, 2, .little);
+    try writer.writeInt(u64, 1, .little);
+
+    const t1 = Tuple{ 1, 10 };
+    const arr1 = [_]Tuple{t1};
+    try writer.writeAll(std.mem.sliceAsBytes(&arr1));
+
+    var reader = std.io.fixedBufferStream(buffer.items);
+    try testing.expectError(error.UnsupportedVersion, zodd.Relation(Tuple).loadWithLimit(allocator, reader.reader(), 10));
+}
+
+test "regression: joinAnti checks multiple stable batches" {
+    const allocator = testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    var input = zodd.Variable(Tuple).init(allocator);
+    defer input.deinit();
+
+    var filter = zodd.Variable(Tuple).init(allocator);
+    defer filter.deinit();
+
+    var output = zodd.Variable(Tuple).init(allocator);
+    defer output.deinit();
+
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
+    _ = try input.changed();
+
+    try filter.insertSlice(&[_]Tuple{.{ 1, 100 }});
+    _ = try filter.changed();
+    _ = try filter.changed();
+
+    try filter.insertSlice(&[_]Tuple{.{ 3, 300 }});
+    _ = try filter.changed();
+
+    try zodd.joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
+        fn logic(key: *const u32, val: *const u32) Tuple {
+            return .{ key.*, val.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+    try testing.expectEqual(@as(usize, 1), output.recent.len());
+    try testing.expectEqual(@as(u32, 2), output.recent.elements[0][0]);
+}

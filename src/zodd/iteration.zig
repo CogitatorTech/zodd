@@ -113,3 +113,22 @@ test "Iteration: reset" {
     _ = try iter.changed();
     try std.testing.expectEqual(@as(usize, 1), iter.current_iteration);
 }
+
+test "Iteration: reset without new data" {
+    const allocator = std.testing.allocator;
+
+    var iter = Iteration(u32).init(allocator, 10);
+    defer iter.deinit();
+
+    const v = try iter.variable();
+    try v.insertSlice(&[_]u32{1});
+
+    _ = try iter.changed();
+    const changed2 = try iter.changed();
+    try std.testing.expect(!changed2);
+
+    iter.reset();
+
+    const changed3 = try iter.changed();
+    try std.testing.expect(!changed3);
+}
