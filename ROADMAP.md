@@ -26,8 +26,7 @@ This document outlines the features implemented in Zodd and the future goals for
 - [x] Persistence
 - [x] Secondary indices
 - [x] Incremental maintenance
-- [x] WASM support
-- [ ] Parallel execution
+- [x] Parallel execution
 - [ ] CLI interface
 - [ ] Streaming input
 - [ ] Rule DSL

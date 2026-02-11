@@ -10,7 +10,8 @@ test "property: relation always sorted after fromSlice" {
         gen.list(u32, gen.intRange(u32, 0, 1000), 0, 50),
         struct {
             fn prop(data: []const u32) !void {
-                var rel = try zodd.Relation(u32).fromSlice(testing.allocator, data);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel = try zodd.Relation(u32).fromSlice(&ctx, data);
                 defer rel.deinit();
 
                 if (rel.elements.len > 1) {
@@ -30,7 +31,8 @@ test "property: relation always deduplicated after fromSlice" {
         gen.list(u32, gen.intRange(u32, 0, 50), 0, 30),
         struct {
             fn prop(data: []const u32) !void {
-                var rel = try zodd.Relation(u32).fromSlice(testing.allocator, data);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel = try zodd.Relation(u32).fromSlice(&ctx, data);
                 defer rel.deinit();
 
                 if (rel.elements.len > 1) {
@@ -58,13 +60,14 @@ test "property: relation merge is commutative" {
         two_lists_gen,
         struct {
             fn prop(lists: TwoLists) !void {
-                var rel1a = try zodd.Relation(u32).fromSlice(testing.allocator, lists[0]);
-                var rel2a = try zodd.Relation(u32).fromSlice(testing.allocator, lists[1]);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel1a = try zodd.Relation(u32).fromSlice(&ctx, lists[0]);
+                var rel2a = try zodd.Relation(u32).fromSlice(&ctx, lists[1]);
                 var merged_ab = try rel1a.merge(&rel2a);
                 defer merged_ab.deinit();
 
-                var rel1b = try zodd.Relation(u32).fromSlice(testing.allocator, lists[0]);
-                var rel2b = try zodd.Relation(u32).fromSlice(testing.allocator, lists[1]);
+                var rel1b = try zodd.Relation(u32).fromSlice(&ctx, lists[0]);
+                var rel2b = try zodd.Relation(u32).fromSlice(&ctx, lists[1]);
                 var merged_ba = try rel2b.merge(&rel1b);
                 defer merged_ba.deinit();
 
@@ -81,10 +84,11 @@ test "property: variable deduplicates across rounds" {
         gen.list(u32, gen.intRange(u32, 0, 50), 1, 30),
         struct {
             fn prop(data: []const u32) !void {
-                var v = zodd.Variable(u32).init(testing.allocator);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var v = zodd.Variable(u32).init(&ctx);
                 defer v.deinit();
 
-                try v.insertSlice(data);
+                try v.insertSlice(&ctx, data);
                 while (try v.changed()) {}
 
                 var result = try v.complete();
@@ -107,9 +111,10 @@ test "property: variable totalLen matches complete().len" {
         gen.list(u32, gen.intRange(u32, 0, 100), 1, 30),
         struct {
             fn prop(data: []const u32) !void {
-                var v = zodd.Variable(u32).init(testing.allocator);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var v = zodd.Variable(u32).init(&ctx);
 
-                try v.insertSlice(data);
+                try v.insertSlice(&ctx, data);
                 while (try v.changed()) {}
 
                 const total_before = v.totalLen();
@@ -138,13 +143,14 @@ test "property: transitive closure reaches expected nodes" {
         edges_gen,
         struct {
             fn prop(edges: []const Edge) !void {
-                var edges_rel = try zodd.Relation(Edge).fromSlice(testing.allocator, edges);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var edges_rel = try zodd.Relation(Edge).fromSlice(&ctx, edges);
                 defer edges_rel.deinit();
 
-                var reachable = zodd.Variable(Edge).init(testing.allocator);
+                var reachable = zodd.Variable(Edge).init(&ctx);
                 defer reachable.deinit();
 
-                try reachable.insertSlice(edges_rel.elements);
+                try reachable.insertSlice(&ctx, edges_rel.elements);
 
                 var iters: usize = 0;
                 const EdgeList = std.ArrayListUnmanaged(Edge);
@@ -161,7 +167,7 @@ test "property: transitive closure reaches expected nodes" {
                     }
 
                     if (results.items.len > 0) {
-                        try reachable.insert(try zodd.Relation(Edge).fromSlice(testing.allocator, results.items));
+                        try reachable.insert(try zodd.Relation(Edge).fromSlice(&ctx, results.items));
                     }
 
                     if (iters > 20) break;
@@ -183,14 +189,15 @@ test "property: relation merge is idempotent" {
         gen.list(u32, gen.intRange(u32, 0, 100), 0, 30),
         struct {
             fn prop(data: []const u32) !void {
-                var rel1 = try zodd.Relation(u32).fromSlice(testing.allocator, data);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel1 = try zodd.Relation(u32).fromSlice(&ctx, data);
                 defer rel1.deinit();
 
-                var rel2 = try zodd.Relation(u32).fromSlice(testing.allocator, data);
+                var rel2 = try zodd.Relation(u32).fromSlice(&ctx, data);
                 var merged = try rel2.merge(&rel1);
                 defer merged.deinit();
 
-                var expected = try zodd.Relation(u32).fromSlice(testing.allocator, data);
+                var expected = try zodd.Relation(u32).fromSlice(&ctx, data);
                 defer expected.deinit();
 
                 try testing.expectEqualSlices(u32, expected.elements, merged.elements);
@@ -214,7 +221,8 @@ test "property: gallop returns suffix at target" {
         gen_pair,
         struct {
             fn prop(input: Pair) !void {
-                var rel = try zodd.Relation(u32).fromSlice(testing.allocator, input[0]);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel = try zodd.Relation(u32).fromSlice(&ctx, input[0]);
                 defer rel.deinit();
 
                 const target = input[1];
@@ -254,17 +262,18 @@ test "property: relation merge is associative" {
         lists_gen,
         struct {
             fn prop(lists: ThreeLists) !void {
-                var a1 = try zodd.Relation(u32).fromSlice(testing.allocator, lists[0]);
-                var b1 = try zodd.Relation(u32).fromSlice(testing.allocator, lists[1]);
-                var c1 = try zodd.Relation(u32).fromSlice(testing.allocator, lists[2]);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var a1 = try zodd.Relation(u32).fromSlice(&ctx, lists[0]);
+                var b1 = try zodd.Relation(u32).fromSlice(&ctx, lists[1]);
+                var c1 = try zodd.Relation(u32).fromSlice(&ctx, lists[2]);
 
                 var ab = try a1.merge(&b1);
                 var ab_c = try ab.merge(&c1);
                 defer ab_c.deinit();
 
-                var a2 = try zodd.Relation(u32).fromSlice(testing.allocator, lists[0]);
-                var b2 = try zodd.Relation(u32).fromSlice(testing.allocator, lists[1]);
-                var c2 = try zodd.Relation(u32).fromSlice(testing.allocator, lists[2]);
+                var a2 = try zodd.Relation(u32).fromSlice(&ctx, lists[0]);
+                var b2 = try zodd.Relation(u32).fromSlice(&ctx, lists[1]);
+                var c2 = try zodd.Relation(u32).fromSlice(&ctx, lists[2]);
 
                 var bc = try b2.merge(&c2);
                 var a_bc = try a2.merge(&bc);
@@ -292,10 +301,11 @@ test "property: joinHelper matches naive join" {
         pair_gen,
         struct {
             fn prop(p: Pair) !void {
-                var rel1 = try zodd.Relation(Tuple).fromSlice(testing.allocator, p[0]);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel1 = try zodd.Relation(Tuple).fromSlice(&ctx, p[0]);
                 defer rel1.deinit();
 
-                var rel2 = try zodd.Relation(Tuple).fromSlice(testing.allocator, p[1]);
+                var rel2 = try zodd.Relation(Tuple).fromSlice(&ctx, p[1]);
                 defer rel2.deinit();
 
                 const Result = struct { u32, u32, u32 };
@@ -310,7 +320,7 @@ test "property: joinHelper matches naive join" {
                     }
                 }
 
-                var expected = try zodd.Relation(Result).fromSlice(testing.allocator, expected_list.items);
+                var expected = try zodd.Relation(Result).fromSlice(&ctx, expected_list.items);
                 defer expected.deinit();
 
                 const ResultList = std.ArrayListUnmanaged(Result);
@@ -328,7 +338,7 @@ test "property: joinHelper matches naive join" {
 
                 zodd.joinHelper(u32, u32, u32, &rel1, &rel2, Context{ .results = &got_list, .alloc = testing.allocator }, Context.callback);
 
-                var got = try zodd.Relation(Result).fromSlice(testing.allocator, got_list.items);
+                var got = try zodd.Relation(Result).fromSlice(&ctx, got_list.items);
                 defer got.deinit();
 
                 try testing.expectEqualSlices(Result, expected.elements, got.elements);
@@ -353,22 +363,23 @@ test "property: joinAnti matches naive filter" {
         pair_gen,
         struct {
             fn prop(p: Pair) !void {
-                var input = zodd.Variable(Tuple).init(testing.allocator);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var input = zodd.Variable(Tuple).init(&ctx);
                 defer input.deinit();
 
-                var filter = zodd.Variable(Tuple).init(testing.allocator);
+                var filter = zodd.Variable(Tuple).init(&ctx);
                 defer filter.deinit();
 
-                var output = zodd.Variable(Tuple).init(testing.allocator);
+                var output = zodd.Variable(Tuple).init(&ctx);
                 defer output.deinit();
 
-                try input.insertSlice(p[0]);
-                try filter.insertSlice(p[1]);
+                try input.insertSlice(&ctx, p[0]);
+                try filter.insertSlice(&ctx, p[1]);
 
                 _ = try input.changed();
                 _ = try filter.changed();
 
-                try zodd.joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
+                try zodd.joinAnti(u32, u32, u32, Tuple, &ctx, &input, &filter, &output, struct {
                     fn logic(key: *const u32, val: *const u32) Tuple {
                         return .{ key.*, val.* };
                     }
@@ -392,10 +403,10 @@ test "property: joinAnti matches naive filter" {
                     }
                 }
 
-                var expected = try zodd.Relation(Tuple).fromSlice(testing.allocator, expected_list.items);
+                var expected = try zodd.Relation(Tuple).fromSlice(&ctx, expected_list.items);
                 defer expected.deinit();
 
-                var got = try zodd.Relation(Tuple).fromSlice(testing.allocator, output.recent.elements);
+                var got = try zodd.Relation(Tuple).fromSlice(&ctx, output.recent.elements);
                 defer got.deinit();
 
                 try testing.expectEqualSlices(Tuple, expected.elements, got.elements);
@@ -421,19 +432,20 @@ test "property: extendInto matches naive extend" {
         pair_gen,
         struct {
             fn prop(p: Pair) !void {
-                var source = zodd.Variable(Tuple).init(testing.allocator);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var source = zodd.Variable(Tuple).init(&ctx);
                 defer source.deinit();
 
-                var rel = try zodd.Relation(KV).fromSlice(testing.allocator, p[1]);
+                var rel = try zodd.Relation(KV).fromSlice(&ctx, p[1]);
                 defer rel.deinit();
 
-                var output = zodd.Variable(KV).init(testing.allocator);
+                var output = zodd.Variable(KV).init(&ctx);
                 defer output.deinit();
 
-                try source.insertSlice(p[0]);
+                try source.insertSlice(&ctx, p[0]);
                 _ = try source.changed();
 
-                var ext = zodd.ExtendWith(Tuple, u32, u32).init(testing.allocator, &rel, struct {
+                var ext = zodd.ExtendWith(Tuple, u32, u32).init(&ctx, &rel, struct {
                     fn f(t: *const Tuple) u32 {
                         return t.*;
                     }
@@ -441,7 +453,7 @@ test "property: extendInto matches naive extend" {
 
                 var leapers = [_]zodd.Leaper(Tuple, u32){ext.leaper()};
 
-                try zodd.extendInto(Tuple, u32, KV, &source, &leapers, &output, struct {
+                try zodd.extendInto(Tuple, u32, KV, &ctx, &source, &leapers, &output, struct {
                     fn logic(t: *const Tuple, v: *const u32) KV {
                         return .{ t.*, v.* };
                     }
@@ -460,10 +472,10 @@ test "property: extendInto matches naive extend" {
                     }
                 }
 
-                var expected = try zodd.Relation(KV).fromSlice(testing.allocator, expected_list.items);
+                var expected = try zodd.Relation(KV).fromSlice(&ctx, expected_list.items);
                 defer expected.deinit();
 
-                var got = try zodd.Relation(KV).fromSlice(testing.allocator, output.recent.elements);
+                var got = try zodd.Relation(KV).fromSlice(&ctx, output.recent.elements);
                 defer got.deinit();
 
                 try testing.expectEqualSlices(KV, expected.elements, got.elements);
@@ -489,6 +501,7 @@ test "property: SecondaryIndex get matches naive filter" {
         list_gen,
         struct {
             fn prop(data: List) !void {
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
                 const Index = zodd.index.SecondaryIndex(Tuple, u32, struct {
                     fn extract(t: Tuple) u32 {
                         return t[0];
@@ -499,14 +512,14 @@ test "property: SecondaryIndex get matches naive filter" {
                     }
                 }.cmp, 4);
 
-                var idx = Index.init(testing.allocator);
+                var idx = Index.init(&ctx);
                 defer idx.deinit();
 
                 for (data) |t| {
                     try idx.insert(t);
                 }
 
-                var rel = try zodd.Relation(Tuple).fromSlice(testing.allocator, data);
+                var rel = try zodd.Relation(Tuple).fromSlice(&ctx, data);
                 defer rel.deinit();
 
                 var i: usize = 0;
@@ -522,7 +535,7 @@ test "property: SecondaryIndex get matches naive filter" {
                         }
                     }
 
-                    var expected = try zodd.Relation(Tuple).fromSlice(testing.allocator, expected_list.items);
+                    var expected = try zodd.Relation(Tuple).fromSlice(&ctx, expected_list.items);
                     defer expected.deinit();
 
                     const got_ptr = idx.get(key).?;
@@ -550,7 +563,8 @@ test "property: aggregate matches naive sum" {
         list_gen,
         struct {
             fn prop(data: List) !void {
-                var rel = try zodd.Relation(Tuple).fromSlice(testing.allocator, data);
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel = try zodd.Relation(Tuple).fromSlice(&ctx, data);
                 defer rel.deinit();
 
                 const key_func = struct {
@@ -564,7 +578,7 @@ test "property: aggregate matches naive sum" {
                     }
                 };
 
-                var result = try zodd.aggregate.aggregate(Tuple, u32, u32, testing.allocator, &rel, key_func.key, 0, folder.fold);
+                var result = try zodd.aggregate.aggregate(Tuple, u32, u32, &ctx, &rel, key_func.key, 0, folder.fold);
                 defer result.deinit();
 
                 var map = std.AutoHashMap(u32, u32).init(testing.allocator);
@@ -586,7 +600,7 @@ test "property: aggregate matches naive sum" {
                     try expected_list.append(testing.allocator, .{ entry.key_ptr.*, entry.value_ptr.* });
                 }
 
-                var expected = try zodd.Relation(struct { u32, u32 }).fromSlice(testing.allocator, expected_list.items);
+                var expected = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, expected_list.items);
                 defer expected.deinit();
 
                 try testing.expectEqualSlices(struct { u32, u32 }, expected.elements, result.elements);

@@ -4,20 +4,21 @@ const zodd = @import("zodd");
 
 test "transitive closure: linear chain" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Edge = struct { u32, u32 };
     const EdgeList = std.ArrayListUnmanaged(Edge);
 
-    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
+    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
         .{ 3, 4 },
     });
     defer edges.deinit();
 
-    var reachable = zodd.Variable(Edge).init(allocator);
+    var reachable = zodd.Variable(Edge).init(&ctx);
     defer reachable.deinit();
 
-    try reachable.insertSlice(edges.elements);
+    try reachable.insertSlice(&ctx, edges.elements);
 
     var iters: usize = 0;
     while (try reachable.changed()) : (iters += 1) {
@@ -33,7 +34,7 @@ test "transitive closure: linear chain" {
         }
 
         if (results.items.len > 0) {
-            try reachable.insert(try zodd.Relation(Edge).fromSlice(allocator, results.items));
+            try reachable.insert(try zodd.Relation(Edge).fromSlice(&ctx, results.items));
         }
 
         if (iters > 10) break;
@@ -47,10 +48,11 @@ test "transitive closure: linear chain" {
 
 test "transitive closure: diamond graph" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Edge = struct { u32, u32 };
     const EdgeList = std.ArrayListUnmanaged(Edge);
 
-    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
+    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
         .{ 1, 2 },
         .{ 1, 3 },
         .{ 2, 4 },
@@ -58,10 +60,10 @@ test "transitive closure: diamond graph" {
     });
     defer edges.deinit();
 
-    var reachable = zodd.Variable(Edge).init(allocator);
+    var reachable = zodd.Variable(Edge).init(&ctx);
     defer reachable.deinit();
 
-    try reachable.insertSlice(edges.elements);
+    try reachable.insertSlice(&ctx, edges.elements);
 
     var iters: usize = 0;
     while (try reachable.changed()) : (iters += 1) {
@@ -77,7 +79,7 @@ test "transitive closure: diamond graph" {
         }
 
         if (results.items.len > 0) {
-            try reachable.insert(try zodd.Relation(Edge).fromSlice(allocator, results.items));
+            try reachable.insert(try zodd.Relation(Edge).fromSlice(&ctx, results.items));
         }
 
         if (iters > 10) break;
@@ -91,20 +93,21 @@ test "transitive closure: diamond graph" {
 
 test "transitive closure: cycle detection" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Edge = struct { u32, u32 };
     const EdgeList = std.ArrayListUnmanaged(Edge);
 
-    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
+    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
         .{ 3, 1 },
     });
     defer edges.deinit();
 
-    var reachable = zodd.Variable(Edge).init(allocator);
+    var reachable = zodd.Variable(Edge).init(&ctx);
     defer reachable.deinit();
 
-    try reachable.insertSlice(edges.elements);
+    try reachable.insertSlice(&ctx, edges.elements);
 
     var iters: usize = 0;
     while (try reachable.changed()) : (iters += 1) {
@@ -120,7 +123,7 @@ test "transitive closure: cycle detection" {
         }
 
         if (results.items.len > 0) {
-            try reachable.insert(try zodd.Relation(Edge).fromSlice(allocator, results.items));
+            try reachable.insert(try zodd.Relation(Edge).fromSlice(&ctx, results.items));
         }
 
         if (iters > 20) break;
@@ -134,10 +137,11 @@ test "transitive closure: cycle detection" {
 
 test "same generation: parent-child hierarchy" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Pair = struct { u32, u32 };
     const PairList = std.ArrayListUnmanaged(Pair);
 
-    var parent_child = try zodd.Relation(Pair).fromSlice(allocator, &[_]Pair{
+    var parent_child = try zodd.Relation(Pair).fromSlice(&ctx, &[_]Pair{
         .{ 1, 2 },
         .{ 1, 3 },
         .{ 2, 4 },
@@ -145,10 +149,10 @@ test "same generation: parent-child hierarchy" {
     });
     defer parent_child.deinit();
 
-    var same_gen = zodd.Variable(Pair).init(allocator);
+    var same_gen = zodd.Variable(Pair).init(&ctx);
     defer same_gen.deinit();
 
-    try same_gen.insertSlice(&[_]Pair{ .{ 1, 1 }, .{ 2, 2 }, .{ 3, 3 }, .{ 4, 4 }, .{ 5, 5 } });
+    try same_gen.insertSlice(&ctx, &[_]Pair{ .{ 1, 1 }, .{ 2, 2 }, .{ 3, 3 }, .{ 4, 4 }, .{ 5, 5 } });
 
     var iters: usize = 0;
     while (try same_gen.changed()) : (iters += 1) {
@@ -171,7 +175,7 @@ test "same generation: parent-child hierarchy" {
         }
 
         if (results.items.len > 0) {
-            try same_gen.insert(try zodd.Relation(Pair).fromSlice(allocator, results.items));
+            try same_gen.insert(try zodd.Relation(Pair).fromSlice(&ctx, results.items));
         }
 
         if (iters > 10) break;
@@ -185,9 +189,10 @@ test "same generation: parent-child hierarchy" {
 
 test "aggregate: group sum integration" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var rel = try zodd.Relation(Tuple).fromSlice(allocator, &[_]Tuple{
+    var rel = try zodd.Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
         .{ 1, 10 },
         .{ 1, 20 },
         .{ 2, 5 },
@@ -205,7 +210,7 @@ test "aggregate: group sum integration" {
         }
     };
 
-    var result = try zodd.aggregate.aggregate(Tuple, u32, u32, allocator, &rel, key_func.key, 0, folder.fold);
+    var result = try zodd.aggregate.aggregate(Tuple, u32, u32, &ctx, &rel, key_func.key, 0, folder.fold);
     defer result.deinit();
 
     try testing.expectEqual(@as(usize, 2), result.len());
@@ -217,25 +222,26 @@ test "aggregate: group sum integration" {
 
 test "joinInto: incremental updates integration" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
     const Out = struct { u32, u32, u32 };
 
-    var v1 = zodd.Variable(Tuple).init(allocator);
+    var v1 = zodd.Variable(Tuple).init(&ctx);
     defer v1.deinit();
 
-    var v2 = zodd.Variable(Tuple).init(allocator);
+    var v2 = zodd.Variable(Tuple).init(&ctx);
     defer v2.deinit();
 
-    var out = zodd.Variable(Out).init(allocator);
+    var out = zodd.Variable(Out).init(&ctx);
     defer out.deinit();
 
-    try v1.insertSlice(&[_]Tuple{.{ 1, 10 }});
-    try v2.insertSlice(&[_]Tuple{ .{ 1, 100 }, .{ 2, 200 } });
+    try v1.insertSlice(&ctx, &[_]Tuple{.{ 1, 10 }});
+    try v2.insertSlice(&ctx, &[_]Tuple{ .{ 1, 100 }, .{ 2, 200 } });
 
     _ = try v1.changed();
     _ = try v2.changed();
 
-    try zodd.joinInto(u32, u32, u32, Out, &v1, &v2, &out, struct {
+    try zodd.joinInto(u32, u32, u32, Out, &ctx, &v1, &v2, &out, struct {
         fn logic(key: *const u32, v1_val: *const u32, v2_val: *const u32) Out {
             return .{ key.*, v1_val.*, v2_val.* };
         }
@@ -248,10 +254,10 @@ test "joinInto: incremental updates integration" {
     _ = try v2.changed();
     _ = try out.changed();
 
-    try v2.insertSlice(&[_]Tuple{.{ 1, 101 }});
+    try v2.insertSlice(&ctx, &[_]Tuple{.{ 1, 101 }});
     _ = try v2.changed();
 
-    try zodd.joinInto(u32, u32, u32, Out, &v1, &v2, &out, struct {
+    try zodd.joinInto(u32, u32, u32, Out, &ctx, &v1, &v2, &out, struct {
         fn logic(key: *const u32, v1_val: *const u32, v2_val: *const u32) Out {
             return .{ key.*, v1_val.*, v2_val.* };
         }
@@ -264,38 +270,39 @@ test "joinInto: incremental updates integration" {
 
 test "extendInto: extend and anti integration" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32 };
     const Val = u32;
     const Out = struct { u32, u32 };
 
-    var source = zodd.Variable(Tuple).init(allocator);
+    var source = zodd.Variable(Tuple).init(&ctx);
     defer source.deinit();
 
-    try source.insertSlice(&[_]Tuple{ .{1}, .{2} });
+    try source.insertSlice(&ctx, &[_]Tuple{ .{1}, .{2} });
     _ = try source.changed();
 
-    var allow = try zodd.Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+    var allow = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
         .{ 1, 10 },
         .{ 1, 20 },
         .{ 2, 30 },
     });
     defer allow.deinit();
 
-    var block = try zodd.Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+    var block = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
         .{ 1, 10 },
     });
     defer block.deinit();
 
-    var output = zodd.Variable(Out).init(allocator);
+    var output = zodd.Variable(Out).init(&ctx);
     defer output.deinit();
 
-    var ext_allow = zodd.ExtendWith(Tuple, u32, Val).init(allocator, &allow, struct {
+    var ext_allow = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &allow, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
     }.f);
 
-    var ext_block = zodd.ExtendAnti(Tuple, u32, Val).init(allocator, &block, struct {
+    var ext_block = zodd.ExtendAnti(Tuple, u32, Val).init(&ctx, &block, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -303,7 +310,7 @@ test "extendInto: extend and anti integration" {
 
     var leapers = [_]zodd.Leaper(Tuple, Val){ ext_allow.leaper(), ext_block.leaper() };
 
-    try zodd.extendInto(Tuple, Val, Out, &source, &leapers, &output, struct {
+    try zodd.extendInto(Tuple, Val, Out, &ctx, &source, &leapers, &output, struct {
         fn logic(t: *const Tuple, v: *const Val) Out {
             return .{ t[0], v.* };
         }
@@ -317,6 +324,7 @@ test "extendInto: extend and anti integration" {
 
 test "SecondaryIndex: getRange randomized integration" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     const Index = zodd.index.SecondaryIndex(Tuple, u32, struct {
@@ -329,7 +337,7 @@ test "SecondaryIndex: getRange randomized integration" {
         }
     }.cmp, 4);
 
-    var idx = Index.init(allocator);
+    var idx = Index.init(&ctx);
     defer idx.deinit();
 
     var all = std.ArrayListUnmanaged(Tuple){};
@@ -363,7 +371,7 @@ test "SecondaryIndex: getRange randomized integration" {
             }
         }
 
-        var expected = try zodd.Relation(Tuple).fromSlice(allocator, expected_list.items);
+        var expected = try zodd.Relation(Tuple).fromSlice(&ctx, expected_list.items);
         defer expected.deinit();
 
         var got = try idx.getRange(start, end);

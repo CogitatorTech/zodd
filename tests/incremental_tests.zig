@@ -4,32 +4,33 @@ const zodd = @import("zodd");
 
 test "incremental maintenance: monotonic updates" {
     const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var iter = zodd.Iteration(Tuple).init(allocator, 100);
+    var iter = zodd.Iteration(Tuple).init(&ctx, 100);
     defer iter.deinit();
 
     const B = try iter.variable();
     const A = try iter.variable();
 
-    try B.insertSlice(&[_]Tuple{.{ 1, 2 }});
+    try B.insertSlice(&ctx, &[_]Tuple{.{ 1, 2 }});
 
     while (try iter.changed()) {
         if (B.recent.len() > 0) {
-            const rel = try zodd.Relation(Tuple).fromSlice(allocator, B.recent.elements);
+            const rel = try zodd.Relation(Tuple).fromSlice(&ctx, B.recent.elements);
             try A.insert(rel);
         }
     }
 
     try testing.expectEqual(@as(usize, 1), A.totalLen());
 
-    try B.insertSlice(&[_]Tuple{.{ 2, 3 }});
+    try B.insertSlice(&ctx, &[_]Tuple{.{ 2, 3 }});
 
     iter.reset();
 
     while (try iter.changed()) {
         if (B.recent.len() > 0) {
-            const rel = try zodd.Relation(Tuple).fromSlice(allocator, B.recent.elements);
+            const rel = try zodd.Relation(Tuple).fromSlice(&ctx, B.recent.elements);
             try A.insert(rel);
         }
     }

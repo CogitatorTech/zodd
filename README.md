@@ -119,11 +119,13 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    var ctx = try zodd.ExecutionContext.initWithThreads(allocator, 4);
+    defer ctx.deinit();
 
     const Edge = struct { u32, u32 };
 
     // Create base relation: edges in a graph
-    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
+    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
         .{ 3, 4 },
@@ -131,11 +133,11 @@ pub fn main() !void {
     defer edges.deinit();
 
     // Create variable for reachability (transitive closure)
-    var reachable = zodd.Variable(Edge).init(allocator);
+    var reachable = zodd.Variable(Edge).init(&ctx);
     defer reachable.deinit();
 
     // Initialize with base edges
-    try reachable.insertSlice(edges.elements);
+    try reachable.insertSlice(&ctx, edges.elements);
 
     // Fixed-point iteration: reachable(X,Z) :- reachable(X,Y), edge(Y,Z)
     while (try reachable.changed()) {
@@ -151,7 +153,7 @@ pub fn main() !void {
         }
 
         if (new_tuples.items.len > 0) {
-            const rel = try zodd.Relation(Edge).fromSlice(allocator, new_tuples.items);
+            const rel = try zodd.Relation(Edge).fromSlice(&ctx, new_tuples.items);
             try reachable.insert(rel);
         }
     }

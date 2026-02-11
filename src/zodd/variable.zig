@@ -3,6 +3,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
+const ExecutionContext = @import("context.zig").ExecutionContext;
 
 pub fn Variable(comptime Tuple: type) type {
     return struct {
@@ -14,13 +15,15 @@ pub fn Variable(comptime Tuple: type) type {
         recent: Rel,
         to_add: RelList,
         allocator: Allocator,
+        ctx: *ExecutionContext,
 
-        pub fn init(allocator: Allocator) Self {
+        pub fn init(ctx: *ExecutionContext) Self {
             return Self{
                 .stable = RelList{},
-                .recent = Rel.empty(allocator),
+                .recent = Rel.empty(ctx),
                 .to_add = RelList{},
-                .allocator = allocator,
+                .allocator = ctx.allocator,
+                .ctx = ctx,
             };
         }
 
@@ -42,15 +45,15 @@ pub fn Variable(comptime Tuple: type) type {
             try self.to_add.append(self.allocator, relation);
         }
 
-        pub fn insertSlice(self: *Self, tuples: []const Tuple) Allocator.Error!void {
-            const rel = try Rel.fromSlice(self.allocator, tuples);
+        pub fn insertSlice(self: *Self, ctx: *ExecutionContext, tuples: []const Tuple) Allocator.Error!void {
+            const rel = try Rel.fromSlice(ctx, tuples);
             try self.insert(rel);
         }
 
         pub fn changed(self: *Self) Allocator.Error!bool {
             if (!self.recent.isEmpty()) {
                 var recent = self.recent;
-                self.recent = Rel.empty(self.allocator);
+                self.recent = Rel.empty(self.ctx);
 
                 while (self.stable.items.len > 0) {
                     const last = &self.stable.items[self.stable.items.len - 1];
@@ -103,7 +106,7 @@ pub fn Variable(comptime Tuple: type) type {
             if (write_idx < target.elements.len) {
                 if (write_idx == 0) {
                     target.deinit();
-                    target.* = Rel.empty(self.allocator);
+                    target.* = Rel.empty(self.ctx);
                 } else {
                     target.elements = self.allocator.realloc(
                         target.elements,
@@ -127,7 +130,7 @@ pub fn Variable(comptime Tuple: type) type {
         pub fn complete(self: *Self) Allocator.Error!Rel {
             if (!self.recent.isEmpty()) {
                 try self.stable.append(self.allocator, self.recent);
-                self.recent = Rel.empty(self.allocator);
+                self.recent = Rel.empty(self.ctx);
             }
 
             if (self.to_add.items.len > 0) {
@@ -140,7 +143,7 @@ pub fn Variable(comptime Tuple: type) type {
             }
 
             if (self.stable.items.len == 0) {
-                return Rel.empty(self.allocator);
+                return Rel.empty(self.ctx);
             }
 
             var result = self.stable.pop().?;
@@ -189,11 +192,12 @@ pub fn gallop(comptime T: type, slice: []const T, target: T) []const T {
 
 test "Variable: basic lifecycle" {
     const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(allocator);
+    var v = Variable(u32).init(&ctx);
     defer v.deinit();
 
-    try v.insertSlice(&[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
 
     const changed1 = try v.changed();
     try std.testing.expect(changed1);
@@ -207,14 +211,15 @@ test "Variable: basic lifecycle" {
 
 test "Variable: deduplication across rounds" {
     const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(allocator);
+    var v = Variable(u32).init(&ctx);
     defer v.deinit();
 
-    try v.insertSlice(&[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
     _ = try v.changed();
 
-    try v.insertSlice(&[_]u32{ 2, 3, 4, 5 });
+    try v.insertSlice(&ctx, &[_]u32{ 2, 3, 4, 5 });
     const changed = try v.changed();
 
     try std.testing.expect(changed);
@@ -223,14 +228,15 @@ test "Variable: deduplication across rounds" {
 
 test "Variable: complete" {
     const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(allocator);
+    var v = Variable(u32).init(&ctx);
 
-    try v.insertSlice(&[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
     _ = try v.changed();
     _ = try v.changed();
 
-    try v.insertSlice(&[_]u32{ 4, 5 });
+    try v.insertSlice(&ctx, &[_]u32{ 4, 5 });
     _ = try v.changed();
     _ = try v.changed();
 
@@ -243,14 +249,15 @@ test "Variable: complete" {
 
 test "Variable: totalLen" {
     const allocator = std.testing.allocator;
-    var v = Variable(u32).init(allocator);
+    var ctx = ExecutionContext.init(allocator);
+    var v = Variable(u32).init(&ctx);
     defer v.deinit();
 
     // Init: 0
     try std.testing.expectEqual(@as(usize, 0), v.totalLen());
 
     // Insert to_add: 3 items
-    try v.insertSlice(&[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
     try std.testing.expectEqual(@as(usize, 3), v.totalLen());
 
     // Changed: recent=3, stable=0, to_add=0 (moved to recent)
@@ -263,7 +270,7 @@ test "Variable: totalLen" {
     try std.testing.expectEqual(@as(usize, 3), v.totalLen());
 
     // Add more
-    try v.insertSlice(&[_]u32{4});
+    try v.insertSlice(&ctx, &[_]u32{4});
     try std.testing.expectEqual(@as(usize, 4), v.totalLen());
 }
 
@@ -283,15 +290,16 @@ test "gallop: basic" {
 
 test "Variable: changed filters against stable batches" {
     const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(allocator);
+    var v = Variable(u32).init(&ctx);
     defer v.deinit();
 
-    try v.insertSlice(&[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 });
+    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 });
     _ = try v.changed();
     _ = try v.changed();
 
-    try v.insertSlice(&[_]u32{ 2, 4, 6, 8, 9 });
+    try v.insertSlice(&ctx, &[_]u32{ 2, 4, 6, 8, 9 });
     const changed = try v.changed();
 
     try std.testing.expect(changed);
@@ -301,14 +309,15 @@ test "Variable: changed filters against stable batches" {
 
 test "Variable: changed with recent and to_add" {
     const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(allocator);
+    var v = Variable(u32).init(&ctx);
     defer v.deinit();
 
-    try v.insertSlice(&[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
     _ = try v.changed();
 
-    try v.insertSlice(&[_]u32{ 3, 5, 11, 12 });
+    try v.insertSlice(&ctx, &[_]u32{ 3, 5, 11, 12 });
     const changed = try v.changed();
 
     try std.testing.expect(changed);

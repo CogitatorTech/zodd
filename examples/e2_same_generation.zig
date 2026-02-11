@@ -5,6 +5,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - Same Generation Example\n", .{});
     std.debug.print("==============================================\n\n", .{});
@@ -28,10 +29,10 @@ pub fn main() !void {
     }
     std.debug.print("\n", .{});
 
-    var parent = try zodd.Relation(Pair).fromSlice(allocator, &parent_data);
+    var parent = try zodd.Relation(Pair).fromSlice(&ctx, &parent_data);
     defer parent.deinit();
 
-    var same_gen = zodd.Variable(Pair).init(allocator);
+    var same_gen = zodd.Variable(Pair).init(&ctx);
     defer same_gen.deinit();
 
     var initial = [_]Pair{
@@ -39,7 +40,7 @@ pub fn main() !void {
         .{ 5, 5 }, .{ 6, 6 }, .{ 7, 7 }, .{ 8, 8 },
         .{ 9, 9 },
     };
-    try same_gen.insertSlice(&initial);
+    try same_gen.insertSlice(&ctx, &initial);
 
     std.debug.print("Computing same-generation relation...\n", .{});
     std.debug.print("Rule: same_gen(X,Y) :- same_gen(P1,P2), parent(P1,X), parent(P2,Y)\n\n", .{});
@@ -68,7 +69,7 @@ pub fn main() !void {
         }
 
         if (results.items.len > 0) {
-            const rel = try zodd.Relation(Pair).fromSlice(allocator, results.items);
+            const rel = try zodd.Relation(Pair).fromSlice(&ctx, results.items);
             try same_gen.insert(rel);
         }
 

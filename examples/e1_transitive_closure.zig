@@ -5,6 +5,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - Transitive Closure Example\n", .{});
     std.debug.print("================================================\n\n", .{});
@@ -24,13 +25,13 @@ pub fn main() !void {
     }
     std.debug.print("\n", .{});
 
-    var edges = try zodd.Relation(Edge).fromSlice(allocator, &edges_data);
+    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &edges_data);
     defer edges.deinit();
 
-    var reachable = zodd.Variable(Edge).init(allocator);
+    var reachable = zodd.Variable(Edge).init(&ctx);
     defer reachable.deinit();
 
-    try reachable.insertSlice(edges.elements);
+    try reachable.insertSlice(&ctx, edges.elements);
 
     std.debug.print("Computing transitive closure...\n", .{});
 
@@ -54,7 +55,7 @@ pub fn main() !void {
         }
 
         if (results.items.len > 0) {
-            const rel = try zodd.Relation(Edge).fromSlice(allocator, results.items);
+            const rel = try zodd.Relation(Edge).fromSlice(&ctx, results.items);
             try reachable.insert(rel);
         }
 

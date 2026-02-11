@@ -5,6 +5,7 @@ pub const variable = @import("zodd/variable.zig");
 pub const iteration = @import("zodd/iteration.zig");
 pub const join = @import("zodd/join.zig");
 pub const extend = @import("zodd/extend.zig");
+pub const context = @import("zodd/context.zig");
 
 pub const index = @import("zodd/index.zig");
 pub const aggregate = @import("zodd/aggregate.zig");
@@ -22,6 +23,7 @@ pub const FilterAnti = extend.FilterAnti;
 pub const ExtendAnti = extend.ExtendAnti;
 pub const extendInto = extend.extendInto;
 pub const aggregateFn = aggregate.aggregate;
+pub const ExecutionContext = context.ExecutionContext;
 
 test {
     @import("std").testing.refAllDecls(@This());
