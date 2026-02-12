@@ -380,3 +380,202 @@ test "SecondaryIndex: getRange randomized integration" {
         try testing.expectEqualSlices(Tuple, expected.elements, got.elements);
     }
 }
+
+test "integration: FilterAnti in extendInto" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+    const Tuple = struct { u32 };
+    const Val = u32;
+    const Out = struct { u32, u32 };
+
+    var source = zodd.Variable(Tuple).init(&ctx);
+    defer source.deinit();
+
+
+    try source.insertSlice(&ctx, &[_]Tuple{ .{1}, .{2}, .{3} });
+    _ = try source.changed();
+
+
+    var rel = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+        .{ 1, 10 },
+        .{ 2, 20 },
+        .{ 3, 30 },
+    });
+    defer rel.deinit();
+
+
+
+
+    var filter_rel = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+        .{ 2, 999 },
+    });
+    defer filter_rel.deinit();
+
+    var output = zodd.Variable(Out).init(&ctx);
+    defer output.deinit();
+
+    var ext = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &rel, struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.f);
+
+    var anti = zodd.FilterAnti(Tuple, u32, u32).init(&ctx, &filter_rel, struct {
+        fn f(t: *const Tuple) struct { u32, u32 } {
+            return .{ t[0], 999 };
+        }
+    }.f);
+
+
+
+
+
+
+
+
+    var leapers = [_]zodd.Leaper(Tuple, Val){ ext.leaper(), anti.leaper() };
+
+    try zodd.extendInto(Tuple, Val, Out, &ctx, &source, &leapers, &output, struct {
+        fn logic(t: *const Tuple, v: *const Val) Out {
+            return .{ t[0], v.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+
+
+    try testing.expectEqual(@as(usize, 2), output.recent.len());
+    try testing.expectEqual(Out{ 1, 10 }, output.recent.elements[0]);
+    try testing.expectEqual(Out{ 3, 30 }, output.recent.elements[1]);
+}
+
+test "integration: multi-way intersection" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+    const Tuple = struct { u32 };
+    const Val = u32;
+    const Out = struct { u32, u32 };
+
+    var source = zodd.Variable(Tuple).init(&ctx);
+    defer source.deinit();
+
+    try source.insertSlice(&ctx, &[_]Tuple{ .{1}, .{2}, .{3}, .{4} });
+    _ = try source.changed();
+
+
+    var r1 = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+        .{ 1, 100 }, .{ 2, 200 }, .{ 3, 300 }, .{ 4, 400 },
+    });
+    defer r1.deinit();
+
+
+    var r2 = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+        .{ 1, 100 }, .{ 2, 200 }, .{ 4, 999 },
+    });
+    defer r2.deinit();
+
+
+    var r3 = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+        .{ 2, 200 }, .{ 3, 300 },
+    });
+    defer r3.deinit();
+
+    var output = zodd.Variable(Out).init(&ctx);
+    defer output.deinit();
+
+    const KeyFunc = struct {
+        fn f(t: *const Tuple) u32 {
+            return t[0];
+        }
+    };
+
+    var ext1 = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &r1, KeyFunc.f);
+    var ext2 = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &r2, KeyFunc.f);
+    var ext3 = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &r3, KeyFunc.f);
+
+
+
+
+
+
+
+
+
+    var leapers = [_]zodd.Leaper(Tuple, Val){ ext1.leaper(), ext2.leaper(), ext3.leaper() };
+
+    try zodd.extendInto(Tuple, Val, Out, &ctx, &source, &leapers, &output, struct {
+        fn logic(t: *const Tuple, v: *const Val) Out {
+            return .{ t[0], v.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+
+
+
+
+
+
+
+
+    try testing.expectEqual(@as(usize, 1), output.recent.len());
+    try testing.expectEqual(Out{ 2, 200 }, output.recent.elements[0]);
+}
+
+test "integration: persistence round-trip" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    var original = try zodd.Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 },
+    });
+    defer original.deinit();
+
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(allocator);
+
+    try original.save(buffer.writer(allocator));
+
+    var fbs = std.io.fixedBufferStream(buffer.items);
+    var loaded = try zodd.Relation(Tuple).load(&ctx, fbs.reader());
+    defer loaded.deinit();
+
+    try testing.expectEqual(original.len(), loaded.len());
+    try testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+}
+
+test "integration: empty-input transitive closure" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+    const Edge = struct { u32, u32 };
+
+    var edges = zodd.Relation(Edge).empty(&ctx);
+    defer edges.deinit();
+
+    var reachable = zodd.Variable(Edge).init(&ctx);
+    defer reachable.deinit();
+
+    try reachable.insert(edges);
+
+
+
+
+
+
+
+    try reachable.insertSlice(&ctx, &[_]Edge{});
+
+    while (try reachable.changed()) {
+        _ = struct {
+            fn fail(_: *const Edge, _: *const u32, _: *const u32) Edge {
+                unreachable;
+            }
+        }.fail(undefined, undefined, undefined);
+    }
+
+    var res = try reachable.complete();
+    defer res.deinit();
+
+    try testing.expectEqual(@as(usize, 0), res.len());
+}

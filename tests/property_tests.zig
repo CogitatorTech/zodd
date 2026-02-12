@@ -609,3 +609,117 @@ test "property: aggregate matches naive sum" {
         .{ .num_runs = 30, .seed = 0xd4e5f6a7 },
     );
 }
+
+test "property: persistence round-trip" {
+    const Tuple = struct { u32, u32 };
+    const List = []const Tuple;
+
+    const list_gen = gen.list(
+        Tuple,
+        gen.tuple2(u32, u32, gen.intRange(u32, 0, 100), gen.intRange(u32, 0, 100)),
+        0,
+        50,
+    );
+
+    try minish.check(
+        testing.allocator,
+        list_gen,
+        struct {
+            fn prop(data: List) !void {
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+
+                var original = try zodd.Relation(Tuple).fromSlice(&ctx, data);
+                defer original.deinit();
+
+                var buffer = std.ArrayListUnmanaged(u8){};
+                defer buffer.deinit(testing.allocator);
+
+                try original.save(buffer.writer(testing.allocator));
+
+                var fbs = std.io.fixedBufferStream(buffer.items);
+                var loaded = try zodd.Relation(Tuple).load(&ctx, fbs.reader());
+                defer loaded.deinit();
+
+                try testing.expectEqual(original.len(), loaded.len());
+                try testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+            }
+        }.prop,
+        .{ .num_runs = 30, .seed = 0xf00dcafe },
+    );
+}
+
+test "property: aggregate count matches naive count" {
+    const Tuple = struct { u32, u32 };
+    const List = []const Tuple;
+
+    const list_gen = gen.list(
+        Tuple,
+        gen.tuple2(u32, u32, gen.intRange(u32, 0, 10), gen.intRange(u32, 0, 50)),
+        0,
+        50,
+    );
+
+    try minish.check(
+        testing.allocator,
+        list_gen,
+        struct {
+            fn prop(data: List) !void {
+                var ctx = zodd.ExecutionContext.init(testing.allocator);
+                var rel = try zodd.Relation(Tuple).fromSlice(&ctx, data);
+                defer rel.deinit();
+
+                const key_func = struct {
+                    fn f(t: *const Tuple) u32 {
+                        return t[0];
+                    }
+                }.f;
+
+                var result = try zodd.aggregateFn(
+                    Tuple,
+                    u32,
+                    u32,
+                    &ctx,
+                    &rel,
+                    key_func,
+                    0,
+                    struct {
+                        fn count(acc: u32, _: *const Tuple) u32 {
+                            return acc + 1;
+                        }
+                    }.count,
+                );
+                defer result.deinit();
+
+                var map = std.AutoHashMap(u32, u32).init(testing.allocator);
+                defer map.deinit();
+
+                for (rel.elements) |t| {
+                    const g = try map.getOrPut(t[0]);
+                    if (!g.found_existing) g.value_ptr.* = 0;
+                    g.value_ptr.* += 1;
+                }
+
+                var expected_list = std.ArrayListUnmanaged(struct { u32, u32 }){};
+                defer expected_list.deinit(testing.allocator);
+
+                var it = map.iterator();
+                while (it.next()) |entry| {
+                    try expected_list.append(testing.allocator, .{ entry.key_ptr.*, entry.value_ptr.* });
+                }
+
+                const sort = struct {
+                    fn lessThan(_: void, a: struct { u32, u32 }, b: struct { u32, u32 }) bool {
+                        return a[0] < b[0];
+                    }
+                };
+                std.sort.block(struct { u32, u32 }, expected_list.items, {}, sort.lessThan);
+
+                var expected = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, expected_list.items);
+                defer expected.deinit();
+
+                try testing.expectEqualSlices(struct { u32, u32 }, expected.elements, result.elements);
+            }
+        }.prop,
+        .{ .num_runs = 30, .seed = 0xbeefbabe },
+    );
+}

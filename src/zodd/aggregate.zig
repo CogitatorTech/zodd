@@ -5,6 +5,8 @@ const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
 const ExecutionContext = @import("context.zig").ExecutionContext;
 
+
+/// Aggregate tuples by key using a folder.
 pub fn aggregate(
     comptime Tuple: type,
     comptime Key: type,

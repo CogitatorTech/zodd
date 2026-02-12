@@ -488,3 +488,115 @@ test "regression: joinAnti checks multiple stable batches" {
     try testing.expectEqual(@as(usize, 1), output.recent.len());
     try testing.expectEqual(@as(u32, 2), output.recent.elements[0][0]);
 }
+
+test "regression: complete on empty Variable returns empty relation" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+
+    var v = zodd.Variable(u32).init(&ctx);
+    defer v.deinit();
+
+    var res = try v.complete();
+    defer res.deinit();
+
+    try testing.expectEqual(@as(usize, 0), res.len());
+}
+
+test "regression: joinInto with empty input produces empty output" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+    const KV = struct { u32, u32 };
+    const Out = struct { u32, u32, u32 };
+
+    var v1 = zodd.Variable(KV).init(&ctx);
+    defer v1.deinit();
+
+    var v2 = zodd.Variable(KV).init(&ctx);
+    defer v2.deinit();
+
+    var out = zodd.Variable(Out).init(&ctx);
+    defer out.deinit();
+
+    try v1.insertSlice(&ctx, &[_]KV{.{ 1, 10 }});
+    _ = try v1.changed();
+
+
+    _ = try v2.changed();
+
+    try zodd.joinInto(u32, u32, u32, Out, &ctx, &v1, &v2, &out, struct {
+        fn logic(k: *const u32, v1_val: *const u32, v2_val: *const u32) Out {
+            return .{ k.*, v1_val.*, v2_val.* };
+        }
+    }.logic);
+
+    _ = try out.changed();
+    try testing.expectEqual(@as(usize, 0), out.recent.len());
+}
+
+test "regression: joinAnti with empty filter keeps all inputs" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    var input = zodd.Variable(Tuple).init(&ctx);
+    defer input.deinit();
+
+    var filter = zodd.Variable(Tuple).init(&ctx);
+    defer filter.deinit();
+
+    var output = zodd.Variable(Tuple).init(&ctx);
+    defer output.deinit();
+
+    try input.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 } });
+    _ = try input.changed();
+
+
+    _ = try filter.changed();
+
+    try zodd.joinAnti(u32, u32, u32, Tuple, &ctx, &input, &filter, &output, struct {
+        fn logic(key: *const u32, val: *const u32) Tuple {
+            return .{ key.*, val.* };
+        }
+    }.logic);
+
+    _ = try output.changed();
+    try testing.expectEqual(@as(usize, 2), output.recent.len());
+}
+
+test "regression: aggregate with unique keys" {
+    const allocator = testing.allocator;
+    var ctx = zodd.ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    var rel = try zodd.Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ 1, 10 },
+        .{ 2, 20 },
+        .{ 3, 30 },
+    });
+    defer rel.deinit();
+
+    var result = try zodd.aggregateFn(
+        Tuple,
+        u32,
+        u32,
+        &ctx,
+        &rel,
+        struct {
+            fn key(t: *const Tuple) u32 {
+                return t[0];
+            }
+        }.key,
+        0,
+        struct {
+            fn sum(acc: u32, t: *const Tuple) u32 {
+                return acc + t[1];
+            }
+        }.sum,
+    );
+    defer result.deinit();
+
+    try testing.expectEqual(@as(usize, 3), result.len());
+    try testing.expectEqual(result.elements[0][1], 10);
+    try testing.expectEqual(result.elements[1][1], 20);
+    try testing.expectEqual(result.elements[2][1], 30);
+}
