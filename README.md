@@ -54,11 +54,22 @@ reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
 % X = 3, Y = 4
 ```
 
-Example applications of Datalog include:
+Datalog is used in many domains when recursive querying over structured data is needed.
+For example:
 
-- Knowledge graphs and semantic reasoning
-- Program analysis (like static analysis of code)
-- Access control and authorization policies
+- Security and access control
+  - Role-based authorization with hierarchical permission inheritance and explicit denials
+  - Network reachability analysis through routing policies and firewall rules
+  - Taint analysis to trace untrusted data through program flows and detect vulnerabilities
+- Data governance and compliance
+  - Data lineage tracking through ETL pipelines for GDPR and CCPA compliance
+  - PII propagation analysis with anonymization checkpoints
+- Healthcare and life sciences
+  - Medical ontology reasoning with type hierarchies and property inheritance
+  - Drug-disease relationship inference and side effect prediction
+- Software engineering
+  - Dependency resolution with transitive closure and cycle detection
+  - Points-to analysis and other static analyses over program representations
 
 ### Why Zodd?
 
