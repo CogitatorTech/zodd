@@ -23,12 +23,14 @@ Zodd is a small [Datalog](https://en.wikipedia.org/wiki/Datalog) engine written 
 
 ### What is Datalog?
 
-Datalog is a declarative logic programming language that is used in deductive databases.
-It is a subset of [Prolog](https://en.wikipedia.org/wiki/Prolog) programming language and allows you to define things like facts and rules
-and then query those facts and rules to derive new information.
+Datalog is a declarative logic programming language for deductive databases.
+In contrast to SQL, which needs explicit joins and subqueries, Datalog lets you express recursive relationships naturally.
+Instead of defining a schema and queries in a relational database,
+you define a set of facts (base data) and rules (logical implications), and a Datalog engine automatically computes all derivable conclusions
+iteratively.
 
-Below is a simple Datalog code-snippet that defines a graph and computes the transitive closure of that graph.
-The code in the [Simple Example](#simple-example) section shows how to implement the same logic using Zodd in Zig.
+Below is a Datalog program that defines a directed graph and computes its transitive closure.
+The [Simple Example](#simple-example) section shows how to implement this using Zodd in Zig.
 
 ```prolog
 % Facts: a graph (with four nodes and three edges)
@@ -37,8 +39,8 @@ edge(2, 3).
 edge(3, 4).
 
 % Rule: transitive closure of the graph
-% A transitive closure of a graph is a relation (a set of nodes) that contains all pairs
-% of nodes that are reachable from each other.
+% The transitive closure is the set of all node pairs (X, Y) where node Y is
+% reachable from node X through one or more directed edges.
 reachable(X, Y) :- edge(X, Y).
 reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
 
@@ -54,22 +56,22 @@ reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
 % X = 3, Y = 4
 ```
 
-Datalog is used in many domains when recursive querying over structured data is needed.
+Datalog is used in many application domains, especially when recursive querying over structured data is needed.
 For example:
 
 - Security and access control
-  - Role-based authorization with hierarchical permission inheritance and explicit denials
-  - Network reachability analysis through routing policies and firewall rules
-  - Taint analysis to trace untrusted data through program flows and detect vulnerabilities
+    - Role-based authorization with hierarchical permission inheritance and explicit denials
+    - Network reachability analysis through routing policies and firewall rules
+    - Taint analysis to trace untrusted data through program flows and detect vulnerabilities
 - Data governance and compliance
-  - Data lineage tracking through ETL pipelines for GDPR and CCPA compliance
-  - PII propagation analysis with anonymization checkpoints
+    - Data lineage tracking through ETL pipelines for GDPR and CCPA compliance
+    - PII propagation analysis with anonymization checkpoints
 - Healthcare and life sciences
-  - Medical ontology reasoning with type hierarchies and property inheritance
-  - Drug-disease relationship inference and side effect prediction
+    - Medical ontology reasoning with type hierarchies and property inheritance
+    - Drug-disease relationship inference and side effect prediction
 - Software engineering
-  - Dependency resolution with transitive closure and cycle detection
-  - Points-to analysis and other static analyses over program representations
+    - Dependency resolution with transitive closure and cycle detection
+    - Points-to analysis and other static analyses over program representations
 
 ### Why Zodd?
 
