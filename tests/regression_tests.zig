@@ -520,7 +520,6 @@ test "regression: joinInto with empty input produces empty output" {
     try v1.insertSlice(&ctx, &[_]KV{.{ 1, 10 }});
     _ = try v1.changed();
 
-
     _ = try v2.changed();
 
     try zodd.joinInto(u32, u32, u32, Out, &ctx, &v1, &v2, &out, struct {
@@ -549,7 +548,6 @@ test "regression: joinAnti with empty filter keeps all inputs" {
 
     try input.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 } });
     _ = try input.changed();
-
 
     _ = try filter.changed();
 

@@ -391,10 +391,8 @@ test "integration: FilterAnti in extendInto" {
     var source = zodd.Variable(Tuple).init(&ctx);
     defer source.deinit();
 
-
     try source.insertSlice(&ctx, &[_]Tuple{ .{1}, .{2}, .{3} });
     _ = try source.changed();
-
 
     var rel = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
         .{ 1, 10 },
@@ -402,9 +400,6 @@ test "integration: FilterAnti in extendInto" {
         .{ 3, 30 },
     });
     defer rel.deinit();
-
-
-
 
     var filter_rel = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
         .{ 2, 999 },
@@ -426,13 +421,6 @@ test "integration: FilterAnti in extendInto" {
         }
     }.f);
 
-
-
-
-
-
-
-
     var leapers = [_]zodd.Leaper(Tuple, Val){ ext.leaper(), anti.leaper() };
 
     try zodd.extendInto(Tuple, Val, Out, &ctx, &source, &leapers, &output, struct {
@@ -442,7 +430,6 @@ test "integration: FilterAnti in extendInto" {
     }.logic);
 
     _ = try output.changed();
-
 
     try testing.expectEqual(@as(usize, 2), output.recent.len());
     try testing.expectEqual(Out{ 1, 10 }, output.recent.elements[0]);
@@ -462,18 +449,15 @@ test "integration: multi-way intersection" {
     try source.insertSlice(&ctx, &[_]Tuple{ .{1}, .{2}, .{3}, .{4} });
     _ = try source.changed();
 
-
     var r1 = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
         .{ 1, 100 }, .{ 2, 200 }, .{ 3, 300 }, .{ 4, 400 },
     });
     defer r1.deinit();
 
-
     var r2 = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
         .{ 1, 100 }, .{ 2, 200 }, .{ 4, 999 },
     });
     defer r2.deinit();
-
 
     var r3 = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
         .{ 2, 200 }, .{ 3, 300 },
@@ -493,14 +477,6 @@ test "integration: multi-way intersection" {
     var ext2 = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &r2, KeyFunc.f);
     var ext3 = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &r3, KeyFunc.f);
 
-
-
-
-
-
-
-
-
     var leapers = [_]zodd.Leaper(Tuple, Val){ ext1.leaper(), ext2.leaper(), ext3.leaper() };
 
     try zodd.extendInto(Tuple, Val, Out, &ctx, &source, &leapers, &output, struct {
@@ -510,13 +486,6 @@ test "integration: multi-way intersection" {
     }.logic);
 
     _ = try output.changed();
-
-
-
-
-
-
-
 
     try testing.expectEqual(@as(usize, 1), output.recent.len());
     try testing.expectEqual(Out{ 2, 200 }, output.recent.elements[0]);
@@ -557,12 +526,6 @@ test "integration: empty-input transitive closure" {
     defer reachable.deinit();
 
     try reachable.insert(edges);
-
-
-
-
-
-
 
     try reachable.insertSlice(&ctx, &[_]Edge{});
 
