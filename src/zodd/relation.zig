@@ -1,4 +1,4 @@
-//! Core Relation data structure: a sorted list of unique tuples.
+//! Core relation data structure: sorted list of unique tuples.
 
 const std = @import("std");
 const mem = std.mem;
@@ -10,10 +10,14 @@ pub fn Relation(comptime Tuple: type) type {
     return struct {
         const Self = @This();
 
+        /// Elements of the relation.
         elements: []Tuple,
+        /// Allocator for the relation.
         allocator: Allocator,
+        /// Execution context.
         ctx: *ExecutionContext,
 
+        /// Creates a relation from a slice of tuples.
         pub fn fromSlice(ctx: *ExecutionContext, input: []const Tuple) Allocator.Error!Self {
             if (input.len == 0) {
                 return Self{
@@ -109,6 +113,7 @@ pub fn Relation(comptime Tuple: type) type {
             };
         }
 
+        /// Creates an empty relation.
         pub fn empty(ctx: *ExecutionContext) Self {
             return Self{
                 .elements = &[_]Tuple{},
@@ -117,6 +122,7 @@ pub fn Relation(comptime Tuple: type) type {
             };
         }
 
+        /// Deinitializes the relation.
         pub fn deinit(self: *Self) void {
             if (self.elements.len > 0) {
                 self.allocator.free(self.elements);
@@ -124,14 +130,17 @@ pub fn Relation(comptime Tuple: type) type {
             self.elements = &[_]Tuple{};
         }
 
+        /// Returns the number of elements in the relation.
         pub fn len(self: Self) usize {
             return self.elements.len;
         }
 
+        /// Returns true if the relation is empty.
         pub fn isEmpty(self: Self) bool {
             return self.elements.len == 0;
         }
 
+        /// Merges this relation with another relation.
         pub fn merge(self: *Self, other: *Self) Allocator.Error!Self {
             if (self.elements.len == 0) {
                 const result = other.*;
@@ -261,6 +270,7 @@ pub fn Relation(comptime Tuple: type) type {
             }
         }
 
+        /// Compares two tuples.
         pub fn compareTuples(a: Tuple, b: Tuple) std.math.Order {
             const info = @typeInfo(Tuple);
             if (info == .@"struct" and info.@"struct".is_tuple) {
@@ -374,6 +384,7 @@ pub fn Relation(comptime Tuple: type) type {
             };
         }
 
+        /// Saves the relation to a writer.
         pub fn save(self: Self, writer: anytype) !void {
             if (!isSerializableType(Tuple)) return error.UnsupportedType;
             try writer.writeAll("ZODDREL");
@@ -384,10 +395,12 @@ pub fn Relation(comptime Tuple: type) type {
             }
         }
 
+        /// Loads a relation from a reader.
         pub fn load(ctx: *ExecutionContext, reader: anytype) !Self {
             return loadWithLimit(ctx, reader, std.math.maxInt(usize));
         }
 
+        /// Loads a relation from a reader with a limit on the number of elements.
         pub fn loadWithLimit(ctx: *ExecutionContext, reader: anytype, max_len: usize) !Self {
             if (!isSerializableType(Tuple)) return error.UnsupportedType;
             const magic = try reader.readBytesNoEof(7);

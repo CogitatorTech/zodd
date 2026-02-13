@@ -7,6 +7,7 @@ const Variable = @import("variable.zig").Variable;
 const gallop = @import("variable.zig").gallop;
 const ExecutionContext = @import("context.zig").ExecutionContext;
 
+/// Helper function for joining two sorted relations.
 pub fn joinHelper(
     comptime Key: type,
     comptime Val1: type,
@@ -91,6 +92,7 @@ fn gallopKey(comptime Key: type, comptime Val: type, slice: []const struct { Key
     return slice[lo..];
 }
 
+/// Joins two variables and inserts the result into an output variable.
 pub fn joinInto(
     comptime Key: type,
     comptime Val1: type,
@@ -208,6 +210,7 @@ pub fn joinInto(
     }
 }
 
+/// Performs an anti-join between a variable and a filter variable.
 pub fn joinAnti(
     comptime Key: type,
     comptime Val: type,

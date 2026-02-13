@@ -18,25 +18,34 @@ pub fn Leaper(comptime Tuple: type, comptime Val: type) type {
         had_error: bool = false,
 
         pub const VTable = struct {
+            /// Returns the estimated count of matching values.
             count: *const fn (ptr: *anyopaque, prefix: *const Tuple) usize,
+            /// Proposes values for the extension.
             propose: *const fn (ptr: *anyopaque, prefix: *const Tuple, alloc: Allocator, values: *ValList, had_error: *bool) void,
+            /// Intersects proposed values with the extension.
             intersect: *const fn (ptr: *anyopaque, prefix: *const Tuple, values: *ValList) void,
+            /// Clones the leaper.
             clone: *const fn (ptr: *anyopaque, alloc: Allocator) Allocator.Error!*anyopaque,
+            /// Destroys the leaper.
             destroy: *const fn (ptr: *anyopaque, alloc: Allocator) void,
         };
 
+        /// Returns the estimated count of matching values.
         pub fn count(self: Self, prefix: *const Tuple) usize {
             return self.vtable.count(self.ptr, prefix);
         }
 
+        /// Proposes values for the extension.
         pub fn propose(self: *Self, prefix: *const Tuple, values: *ValList) void {
             self.vtable.propose(self.ptr, prefix, self.allocator, values, &self.had_error);
         }
 
+        /// Intersects proposed values with the extension.
         pub fn intersect(self: Self, prefix: *const Tuple, values: *ValList) void {
             self.vtable.intersect(self.ptr, prefix, values);
         }
 
+        /// Clones the leaper.
         pub fn clone(self: Self, alloc: Allocator) Allocator.Error!Self {
             const new_ptr = try self.vtable.clone(self.ptr, alloc);
             return Self{
@@ -46,6 +55,7 @@ pub fn Leaper(comptime Tuple: type, comptime Val: type) type {
             };
         }
 
+        /// Deinitializes the leaper.
         pub fn deinit(self: *Self) void {
             self.vtable.destroy(self.ptr, self.allocator);
         }
@@ -70,6 +80,7 @@ pub fn ExtendWith(
         cached_count: usize = 0,
         cached_start: usize = 0,
 
+        /// Initializes a new extend-with leaper.
         pub fn init(ctx: *ExecutionContext, relation: *const Rel, key_func: *const fn (*const Tuple) Key) Self {
             return Self{
                 .relation = relation,
@@ -78,6 +89,7 @@ pub fn ExtendWith(
             };
         }
 
+        /// Returns the type-erased leaper interface.
         pub fn leaper(self: *Self) LeaperType {
             return LeaperType{
                 .ptr = @ptrCast(self),
@@ -168,6 +180,7 @@ pub fn FilterAnti(
         key_func: *const fn (*const Tuple) struct { Key, Val },
         allocator: Allocator,
 
+        /// Initializes a new filter-anti leaper.
         pub fn init(
             ctx: *ExecutionContext,
             relation: *const Rel,
@@ -180,6 +193,7 @@ pub fn FilterAnti(
             };
         }
 
+        /// Returns the type-erased leaper interface.
         pub fn leaper(self: *Self) LeaperType {
             return LeaperType{
                 .ptr = @ptrCast(self),
@@ -241,6 +255,7 @@ pub fn ExtendAnti(
         key_func: *const fn (*const Tuple) Key,
         allocator: Allocator,
 
+        /// Initializes a new extend-anti leaper.
         pub fn init(ctx: *ExecutionContext, relation: *const Rel, key_func: *const fn (*const Tuple) Key) Self {
             return Self{
                 .relation = relation,
@@ -249,6 +264,7 @@ pub fn ExtendAnti(
             };
         }
 
+        /// Returns the type-erased leaper interface.
         pub fn leaper(self: *Self) LeaperType {
             return LeaperType{
                 .ptr = @ptrCast(self),
@@ -307,6 +323,7 @@ pub fn ExtendAnti(
     };
 }
 
+/// Extends a variable into another variable using leapers.
 pub fn extendInto(
     comptime Tuple: type,
     comptime Val: type,

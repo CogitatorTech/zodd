@@ -12,12 +12,18 @@ pub fn Iteration(comptime Tuple: type) type {
         const Var = Variable(Tuple);
         const VarList = std.ArrayListUnmanaged(*Var);
 
+        /// List of variables in the iteration.
         variables: VarList,
+        /// Allocator for the iteration.
         allocator: Allocator,
+        /// Execution context.
         ctx: *ExecutionContext,
+        /// Maximum number of iterations allowed.
         max_iterations: usize,
+        /// Current iteration count.
         current_iteration: usize,
 
+        /// Initializes a new iteration.
         pub fn init(ctx: *ExecutionContext, max_iterations: ?usize) Self {
             return Self{
                 .variables = VarList{},
@@ -28,6 +34,7 @@ pub fn Iteration(comptime Tuple: type) type {
             };
         }
 
+        /// Deinitializes the iteration.
         pub fn deinit(self: *Self) void {
             for (self.variables.items) |v| {
                 v.deinit();
@@ -36,6 +43,7 @@ pub fn Iteration(comptime Tuple: type) type {
             self.variables.deinit(self.allocator);
         }
 
+        /// Creates a new variable associated with this iteration.
         pub fn variable(self: *Self) Allocator.Error!*Var {
             const v = try self.allocator.create(Var);
             v.* = Var.init(self.ctx);
@@ -43,6 +51,7 @@ pub fn Iteration(comptime Tuple: type) type {
             return v;
         }
 
+        /// Runs one step of the iteration and returns true if any variable changed.
         pub fn changed(self: *Self) !bool {
             if (self.current_iteration >= self.max_iterations) {
                 return error.MaxIterationsExceeded;
@@ -98,6 +107,7 @@ pub fn Iteration(comptime Tuple: type) type {
             return any_changed;
         }
 
+        /// Resets the iteration state.
         pub fn reset(self: *Self) void {
             self.current_iteration = 0;
         }

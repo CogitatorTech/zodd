@@ -1,4 +1,4 @@
-//! A Datalog variable representing a relation that evolves during iteration.
+//! Datalog variable representing a relation that evolves during iteration.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -11,12 +11,18 @@ pub fn Variable(comptime Tuple: type) type {
         const Rel = Relation(Tuple);
         const RelList = std.ArrayListUnmanaged(Rel);
 
+        /// Stable batches of the variable.
         stable: RelList,
+        /// Recent batch of the variable.
         recent: Rel,
+        /// Batches to be added to the variable.
         to_add: RelList,
+        /// Allocator for the variable.
         allocator: Allocator,
+        /// Execution context.
         ctx: *ExecutionContext,
 
+        /// Initializes a new variable.
         pub fn init(ctx: *ExecutionContext) Self {
             return Self{
                 .stable = RelList{},
@@ -27,6 +33,7 @@ pub fn Variable(comptime Tuple: type) type {
             };
         }
 
+        /// Deinitializes the variable.
         pub fn deinit(self: *Self) void {
             for (self.stable.items) |*batch| {
                 batch.deinit();
@@ -41,15 +48,18 @@ pub fn Variable(comptime Tuple: type) type {
             self.to_add.deinit(self.allocator);
         }
 
+        /// Inserts a relation into the variable.
         pub fn insert(self: *Self, relation: Rel) Allocator.Error!void {
             try self.to_add.append(self.allocator, relation);
         }
 
+        /// Inserts a slice of tuples into the variable.
         pub fn insertSlice(self: *Self, ctx: *ExecutionContext, tuples: []const Tuple) Allocator.Error!void {
             const rel = try Rel.fromSlice(ctx, tuples);
             try self.insert(rel);
         }
 
+        /// Processes pending updates and returns true if the variable has changed.
         pub fn changed(self: *Self) Allocator.Error!bool {
             if (!self.recent.isEmpty()) {
                 var recent = self.recent;
@@ -116,6 +126,7 @@ pub fn Variable(comptime Tuple: type) type {
             }
         }
 
+        /// Returns the total number of elements in the variable.
         pub fn totalLen(self: Self) usize {
             var count: usize = self.recent.len();
             for (self.stable.items) |batch| {
@@ -127,6 +138,7 @@ pub fn Variable(comptime Tuple: type) type {
             return count;
         }
 
+        /// Completes the variable and returns the final relation.
         pub fn complete(self: *Self) Allocator.Error!Rel {
             if (!self.recent.isEmpty()) {
                 try self.stable.append(self.allocator, self.recent);
@@ -157,6 +169,7 @@ pub fn Variable(comptime Tuple: type) type {
     };
 }
 
+/// Gallop search for a value in a sorted slice.
 pub fn gallop(comptime T: type, slice: []const T, target: T) []const T {
     const Rel = Relation(T);
 

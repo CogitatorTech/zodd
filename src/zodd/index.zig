@@ -17,10 +17,14 @@ pub fn SecondaryIndex(
         const Self = @This();
         const Map = ordered.BTreeMap(Key, Relation(Tuple), key_compare, BRANCHING_FACTOR);
 
+        /// Underlying B-tree map.
         map: Map,
+        /// Allocator for the index.
         allocator: Allocator,
+        /// Execution context.
         ctx: *ExecutionContext,
 
+        /// Initializes a new secondary index.
         pub fn init(ctx: *ExecutionContext) Self {
             return Self{
                 .map = Map.init(ctx.allocator),
@@ -29,6 +33,7 @@ pub fn SecondaryIndex(
             };
         }
 
+        /// Deinitializes the index.
         pub fn deinit(self: *Self) void {
             var iter = self.map.iterator() catch return;
             defer iter.deinit();
@@ -39,6 +44,7 @@ pub fn SecondaryIndex(
             self.map.deinit();
         }
 
+        /// Inserts a tuple into the index.
         pub fn insert(self: *Self, tuple: Tuple) !void {
             const key = key_extractor(tuple);
             if (self.map.getPtr(key)) |rel_ptr| {
@@ -54,17 +60,19 @@ pub fn SecondaryIndex(
             }
         }
 
-        /// Bulk insert multiple tuples
+        /// Bulk insert multiple tuples.
         pub fn insertSlice(self: *Self, tuples: []const Tuple) !void {
             for (tuples) |t| {
                 try self.insert(t);
             }
         }
 
+        /// Returns the relation for a given key.
         pub fn get(self: *const Self, key: Key) ?*const Relation(Tuple) {
             return self.map.get(key);
         }
 
+        /// Returns a relation covering the range [start_key, end_key).
         pub fn getRange(self: *Self, start_key: Key, end_key: Key) !Relation(Tuple) {
             var iter = try self.map.iterator();
             defer iter.deinit();

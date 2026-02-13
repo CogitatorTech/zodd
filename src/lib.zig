@@ -1,5 +1,5 @@
-//! Zodd: a Datalog engine for Zig.
-///
+//! Zodd: datalog engine for Zig.
+
 /// Relation module.
 pub const relation = @import("zodd/relation.zig");
 /// Variable module.
