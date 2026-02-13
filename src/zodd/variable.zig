@@ -180,11 +180,12 @@ pub fn gallop(comptime T: type, slice: []const T, target: T) []const T {
     var pos: usize = 0;
 
     while (true) {
-        const next_pos = pos + step;
+        const next_pos = std.math.add(usize, pos, step) catch slice.len;
         if (next_pos >= slice.len or next_pos < pos) break;
         if (Rel.compareTuples(slice[next_pos], target) != .lt) break;
         pos = next_pos;
-        step *|= 2;
+        const new_step = std.math.mul(usize, step, 2) catch std.math.maxInt(usize);
+        step = new_step;
     }
 
     const end = @min(pos + step + 1, slice.len);

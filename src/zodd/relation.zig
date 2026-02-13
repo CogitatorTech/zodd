@@ -157,92 +157,54 @@ pub fn Relation(comptime Tuple: type) type {
 
             const total_len = self.elements.len + other.elements.len;
             const merged = try self.allocator.alloc(Tuple, total_len);
+            errdefer self.allocator.free(merged);
 
-            if (self.ctx.pool) |pool| {
-                const chunk: usize = 1024;
-                const task_count = (total_len + chunk - 1) / chunk;
-                const Task = struct {
-                    start: usize,
-                    end: usize,
-                    left: []const Tuple,
-                    right: []const Tuple,
-                    output: []Tuple,
+            var i: usize = 0;
+            var j: usize = 0;
+            var k: usize = 0;
 
-                    fn run(task: *@This()) void {
-                        var i = task.start;
-                        while (i < task.end) : (i += 1) {
-                            if (i < task.left.len) {
-                                task.output[i] = task.left[i];
-                            } else {
-                                const idx = i - task.left.len;
-                                task.output[i] = task.right[idx];
-                            }
-                        }
-                    }
-                };
+            const elems1 = self.elements;
+            const elems2 = other.elements;
 
-                const tasks = try self.allocator.alloc(Task, task_count);
-                defer self.allocator.free(tasks);
-
-                var wg: std.Thread.WaitGroup = .{};
-                var t: usize = 0;
-                while (t < task_count) : (t += 1) {
-                    const start = t * chunk;
-                    const end = @min(start + chunk, total_len);
-                    tasks[t] = .{
-                        .start = start,
-                        .end = end,
-                        .left = self.elements,
-                        .right = other.elements,
-                        .output = merged,
-                    };
-                    pool.spawnWg(&wg, Task.run, .{&tasks[t]});
-                }
-
-                wg.wait();
-            } else {
-                @memcpy(merged[0..self.elements.len], self.elements);
-                @memcpy(merged[self.elements.len..], other.elements);
-            }
-
-            if (self.ctx.pool) |pool| {
-                const chunk: usize = 2048;
-                const task_count = (total_len + chunk - 1) / chunk;
-                if (task_count > 1) {
-                    const TaskSort = struct {
-                        start: usize,
-                        end: usize,
-                        data: []Tuple,
-
-                        fn run(task: *@This()) void {
-                            std.sort.pdq(Tuple, task.data[task.start..task.end], {}, lessThan);
-                        }
-                    };
-
-                    const tasks_sort = try self.allocator.alloc(TaskSort, task_count);
-                    defer self.allocator.free(tasks_sort);
-
-                    var wg: std.Thread.WaitGroup = .{};
-                    var t2: usize = 0;
-                    while (t2 < task_count) : (t2 += 1) {
-                        const start = t2 * chunk;
-                        const end = @min(start + chunk, total_len);
-                        tasks_sort[t2] = .{ .start = start, .end = end, .data = merged };
-                        pool.spawnWg(&wg, TaskSort.run, .{&tasks_sort[t2]});
-                    }
-
-                    wg.wait();
+            while (i < elems1.len and j < elems2.len) {
+                const ord = compareTuples(elems1[i], elems2[j]);
+                switch (ord) {
+                    .lt => {
+                        merged[k] = elems1[i];
+                        i += 1;
+                        k += 1;
+                    },
+                    .gt => {
+                        merged[k] = elems2[j];
+                        j += 1;
+                        k += 1;
+                    },
+                    .eq => {
+                        merged[k] = elems1[i];
+                        i += 1;
+                        j += 1;
+                        k += 1;
+                    },
                 }
             }
 
-            sort.pdq(Tuple, merged, {}, lessThan);
-            const unique_len = deduplicate(merged);
+            if (i < elems1.len) {
+                const rem = elems1.len - i;
+                @memcpy(merged[k..][0..rem], elems1[i..]);
+                k += rem;
+            }
+
+            if (j < elems2.len) {
+                const rem = elems2.len - j;
+                @memcpy(merged[k..][0..rem], elems2[j..]);
+                k += rem;
+            }
 
             self.deinit();
             other.deinit();
 
-            if (unique_len < merged.len) {
-                const shrunk = self.allocator.realloc(merged, unique_len) catch merged[0..unique_len];
+            if (k < merged.len) {
+                const shrunk = self.allocator.realloc(merged, k) catch merged[0..k];
                 return Self{
                     .elements = shrunk,
                     .allocator = self.allocator,

@@ -133,10 +133,11 @@ pub fn ExtendWith(
 
             var write_idx: usize = 0;
             const range = findKeyRange(Key, Val, self.relation.elements, key);
-            const range_slice = self.relation.elements[range.start..][0..range.count];
+            var slice: []const struct { Key, Val } = self.relation.elements[range.start..][0..range.count];
 
             for (values.items) |val| {
-                if (binarySearchVal(Key, Val, range_slice, val.*)) {
+                slice = gallopValHelper(Key, Val, slice, val.*);
+                if (slice.len > 0 and std.math.order(slice[0][1], val.*) == .eq) {
                     values.items[write_idx] = val;
                     write_idx += 1;
                 }
@@ -293,10 +294,12 @@ pub fn ExtendAnti(
 
             var write_idx: usize = 0;
             const range = findKeyRange(Key, Val, self.relation.elements, key);
-            const range_slice = self.relation.elements[range.start..][0..range.count];
+            var slice: []const struct { Key, Val } = self.relation.elements[range.start..][0..range.count];
 
             for (values.items) |val| {
-                if (!binarySearchVal(Key, Val, range_slice, val.*)) {
+                slice = gallopValHelper(Key, Val, slice, val.*);
+                const found = slice.len > 0 and std.math.order(slice[0][1], val.*) == .eq;
+                if (!found) {
                     values.items[write_idx] = val;
                     write_idx += 1;
                 }
@@ -565,21 +568,36 @@ fn compareKV(comptime Key: type, comptime Val: type, a: struct { Key, Val }, b: 
     return std.math.order(a[1], b[1]);
 }
 
-/// Binary search for a value within a slice of (key,val) tuples.
-/// Since tuples are sorted by (key, val), values within the same key range are sorted.
-fn binarySearchVal(comptime Key: type, comptime Val: type, elements: []const struct { Key, Val }, target_val: Val) bool {
-    var lo: usize = 0;
-    var hi: usize = elements.len;
+fn gallopValHelper(comptime Key: type, comptime Val: type, slice: []const struct { Key, Val }, target: Val) []const struct { Key, Val } {
+    if (slice.len == 0) return slice;
+    if (std.math.order(slice[0][1], target) != .lt) return slice;
+
+    var step: usize = 1;
+    var pos: usize = 0;
+
+    while (true) {
+        const next_pos = std.math.add(usize, pos, step) catch slice.len;
+        if (next_pos >= slice.len or next_pos < pos) break;
+        if (std.math.order(slice[next_pos][1], target) != .lt) break;
+        pos = next_pos;
+        const new_step = std.math.mul(usize, step, 2) catch std.math.maxInt(usize);
+        step = new_step;
+    }
+
+    const end = @min(pos + step + 1, slice.len);
+    var lo = pos + 1;
+    var hi = end;
 
     while (lo < hi) {
         const mid = lo + (hi - lo) / 2;
-        switch (std.math.order(elements[mid][1], target_val)) {
-            .lt => lo = mid + 1,
-            .gt => hi = mid,
-            .eq => return true,
+        if (std.math.order(slice[mid][1], target) == .lt) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
         }
     }
-    return false;
+
+    return slice[lo..];
 }
 
 test "ExtendWith: basic" {
