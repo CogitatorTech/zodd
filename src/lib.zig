@@ -1,7 +1,6 @@
 //! # Zodd
 //!
-//! Zodd is a Datalog engine for Zig.
-//! It implements semi-naive evaluation with parallel execution support.
+//! Zodd is a Datalog engine in Zig.
 //!
 //! ## Quickstart
 //!
