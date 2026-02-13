@@ -1,4 +1,9 @@
-//! Fixpoint iteration logic for semi-naive evaluation.
+//! # Iteration Manager
+//!
+//! The manager handles the fixpoint iteration loop for semi-naive evaluation.
+//!
+//! It orchestrates the evolution of multiple `Variable` instances, checking for convergence
+//! (when no new facts are added). It supports parallel "changed" checks.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

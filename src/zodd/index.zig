@@ -1,4 +1,9 @@
-//! Secondary index implementation for relations using B-trees.
+//! # Secondary Index
+//!
+//! The module implements B-tree based secondary indexes for relations.
+//!
+//! The index allows efficient lookups and range queries on attributes other than the primary sort key.
+//! It uses an `id` -> `Relation` mapping, where `id` is the indexed attribute.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

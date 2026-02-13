@@ -1,4 +1,9 @@
-//! Context management for parallel execution.
+//! # Execution Context
+//!
+//! The context manages shared resources for query execution, primarily the memory allocator
+//! and optional thread pool.
+//!
+//! Users pass it to Zodd operations to access resources.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

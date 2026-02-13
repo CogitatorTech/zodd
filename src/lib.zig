@@ -1,5 +1,55 @@
-//! Zodd: datalog engine for Zig.
-
+//! # Zodd
+//!
+//! Zodd is a Datalog engine for Zig.
+//! It implements semi-naive evaluation with parallel execution support.
+//!
+//! ## Quickstart
+//!
+//! ```zig
+//! const std = @import("std");
+//! const zodd = @import("zodd");
+//!
+//! pub fn main() !void {
+//!     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+//!     defer _ = gpa.deinit();
+//!     const allocator = gpa.allocator();
+//!
+//!     // 1. Create execution context
+//!     var ctx = zodd.ExecutionContext.init(allocator);
+//!     defer ctx.deinit();
+//!
+//!     // 2. Define relation (e.g., edge(x, y))
+//!     const Edge = struct { u32, u32 };
+//!     var edge = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
+//!         .{ 1, 2 }, .{ 2, 3 }, .{ 3, 4 }
+//!     });
+//!     defer edge.deinit();
+//!
+//!     // 3. Define variable for transitive closure path(x, y)
+//!     var path = try zodd.Variable(Edge).init(&ctx, &edge);
+//!     defer path.deinit();
+//!
+//!     // 4. Run semi-naive evaluation
+//!     while (try path.changed()) {
+//!         // path(x, z) :- path(x, y), edge(y, z).
+//!         const new_paths = try zodd.joinInto(Edge, Edge, u32, &path, &edge, 1, 0, struct {
+//!             fn f(x: u32, y: u32, z: u32) Edge { return .{ x, z }; }
+//!         }.f);
+//!         try path.insert(new_paths);
+//!     }
+//!
+//!     std.debug.print("Path count: {}\n", .{path.complete().len});
+//! }
+//! ```
+//!
+//! ## Components
+//!
+//! - `Relation`: The immutable data structure (sorted, deduplicated tuples).
+//! - `Variable`: The mutable relation for fixed-point iterations.
+//! - `join`: The merge-join algorithms.
+//! - `extend`: The primitives for extending tuples (semi-joins, anti-joins).
+//! - `index`: The indexes for lookups.
+//! - `aggregate`: The group-by and aggregation operations.
 
 /// Relation module.
 pub const relation = @import("zodd/relation.zig");

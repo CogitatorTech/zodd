@@ -1,4 +1,26 @@
-//! Datalog variable representing a relation that evolves during iteration.
+//! # Variable
+//!
+//! A Variable represents a relation that evolves during fixed-point iteration (semi-naive evaluation).
+//!
+//! The Variable maintains three states:
+//! - **Stable**: The tuples processed in previous iterations.
+//! - **Recent**: The tuples added in the current iteration (delta).
+//! - **To Add**: The new tuples discovered in the current iteration.
+//!
+//! This structure allows join processing where only `recent` tuples are joined
+//! with other relations to discover new facts.
+//!
+//! ## Usage
+//!
+//! ```zig
+//! var v = try Variable(Edge).init(ctx, &initial_edges);
+//! defer v.deinit();
+//!
+//! while (try v.changed()) {
+//!     // Join logic here, populating v.next
+//!     try v.insert(new_facts);
+//! }
+//! ```
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -11,18 +33,22 @@ pub fn Variable(comptime Tuple: type) type {
         const Rel = Relation(Tuple);
         const RelList = std.ArrayListUnmanaged(Rel);
 
-        /// Stable batches of the variable.
+        /// The list of "stable" relations.
         stable: RelList,
-        /// Recent batch of the variable.
+        /// The "recent" relation (added in the last round).
         recent: Rel,
-        /// Batches to be added to the variable.
+        /// The list of relations to be added for the next round.
         to_add: RelList,
-        /// Allocator for the variable.
+        /// The allocator for internal structures.
         allocator: Allocator,
-        /// Execution context.
+        /// The execution context.
         ctx: *ExecutionContext,
 
         /// Initializes a new variable.
+        ///
+        /// Arguments:
+        /// - `ctx`: The execution context.
+        /// - `initial_data`: (Optional) The initial relation.
         pub fn init(ctx: *ExecutionContext) Self {
             return Self{
                 .stable = RelList{},
