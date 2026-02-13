@@ -1,4 +1,13 @@
-//! Join algorithms including merge-join and leapfrog trie join.
+//! # Join Algorithms
+//!
+//! The module implements join operations for sorted relations.
+//!
+//! Functions:
+//! - `joinHelper`: The function performs a sort-merge join between two relations.
+//! - `joinInto`: The function joins two relations (including Variable deltas) and projects results.
+//! - `joinAnti`: The function performs an anti-join operation (subtracting tuples).
+//!
+//! These functions use the sorted property of relations.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -7,7 +16,18 @@ const Variable = @import("variable.zig").Variable;
 const gallop = @import("variable.zig").gallop;
 const ExecutionContext = @import("context.zig").ExecutionContext;
 
-/// Helper function for joining two sorted relations.
+/// Performs a merge-join between two sorted relations on a common key.
+///
+/// The function iterates through both relations. When keys match, it invokes the callback.
+///
+/// Arguments:
+/// - `Key`: The type of join key.
+/// - `Val1`: The value type of the first relation.
+/// - `Val2`: The value type of the second relation.
+/// - `input1`: The first relation (sorted by Key).
+/// - `input2`: The second relation (sorted by Key).
+/// - `context`: The context passed to the result callback.
+/// - `result`: The comparison callback function `fn(ctx, key, val1, val2) void`.
 pub fn joinHelper(
     comptime Key: type,
     comptime Val1: type,

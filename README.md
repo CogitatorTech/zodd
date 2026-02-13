@@ -9,7 +9,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/zodd/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/CogitatorTech/zodd/blob/main/LICENSE)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/zodd/tree/main/examples)
-[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/#zodd.lib)
+[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/)
 [![Zig Version](https://img.shields.io/badge/Zig-0.15.2-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/release/CogitatorTech/zodd.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/releases/latest)
 
@@ -76,9 +76,10 @@ For example:
 ### Why Zodd?
 
 - Written in pure Zig with a simple API
-- Supports a subset of relational algebra with sorted, deduplicated relations
-- Supports fast incremental rule computation
-- Supports multi-way joins and anti-join operations
+- Implements semi-naive evaluation for efficient recursive query processing
+- Uses immutable, sorted, and deduplicated relations as core data structures
+- Supports parallel execution for joins and variable updates
+- Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 
@@ -183,7 +184,7 @@ pub fn main() !void {
 
 ### Documentation
 
-You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/#zodd.lib).
+You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/).
 
 Alternatively, you can use the `make docs` command to generate the documentation for the current version of Zodd.
 This will generate HTML documentation in the `docs/api` directory, which you can serve locally with `make docs-serve` and view in a web browser.

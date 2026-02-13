@@ -1,4 +1,10 @@
-//! Group-by and aggregation primitives for relations.
+//! # Aggregation
+//!
+//! The module provides primitives for grouping and aggregating tuples.
+//!
+//! It supports standard operations like sum, count, min, max via a generic folder interface.
+//! The algorithm sorts tuples by the grouping key, then folds values.
+//! The pre-processing step supports parallel execution.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

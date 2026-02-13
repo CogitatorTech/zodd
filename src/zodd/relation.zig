@@ -1,4 +1,25 @@
-//! Core relation data structure: sorted list of unique tuples.
+//! # Relation
+//!
+//! Structure representing a set of tuples.
+//! The relation is immutable, sorted, and deduplicated.
+//!
+//! ## Usage
+//!
+//! ```zig
+//! const zodd = @import("zodd");
+//!
+//! // Define tuple type
+//! const Edge = struct { u32, u32 };
+//!
+//! // Create from slice
+//! var rel = try zodd.Relation(Edge).fromSlice(ctx, &[_]Edge{
+//!     .{ 1, 2 }, .{ 1, 2 }, .{ 2, 3 }
+//! });
+//! defer rel.deinit();
+//!
+//! // Elements are sorted and deduplicated
+//! std.debug.assert(rel.elements.len == 2);
+//! ```
 
 const std = @import("std");
 const mem = std.mem;
@@ -10,14 +31,24 @@ pub fn Relation(comptime Tuple: type) type {
     return struct {
         const Self = @This();
 
-        /// Elements of the relation.
+        /// The underlying sorted, deduplicated slice of tuples.
+        /// The slice is owned by the Relation.
         elements: []Tuple,
-        /// Allocator for the relation.
+        /// The allocator for the relation.
         allocator: Allocator,
-        /// Execution context.
+        /// The execution context.
         ctx: *ExecutionContext,
 
-        /// Creates a relation from a slice of tuples.
+        /// Creates a `Relation` from a slice of tuples.
+        ///
+        /// The function copies, sorts, and deduplicates the input slice.
+        /// It uses a thread pool for sorting if one is available.
+        ///
+        /// Arguments:
+        /// - `ctx`: The execution context.
+        /// - `input`: The slice of tuples.
+        ///
+        /// Returns: A new `Relation`.
         pub fn fromSlice(ctx: *ExecutionContext, input: []const Tuple) Allocator.Error!Self {
             if (input.len == 0) {
                 return Self{

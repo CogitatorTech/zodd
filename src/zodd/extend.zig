@@ -1,4 +1,15 @@
-//! Primitives for extending tuples with new values.
+//! # Extension Primitives
+//!
+//! The module provides mechanisms to extend tuples with new values, implementing semi-joins and anti-joins.
+//!
+//! A `Leaper` represents a strategy for finding matching values for a prefix.
+//!
+//! Components:
+//! - `ExtendWith`: The struct extends a tuple by looking up values in a relation (semi-join).
+//! - `FilterAnti`: The struct filters tuples that DO NOT match values in a relation (anti-join).
+//! - `ExtendAnti`: The struct extends a tuple but excludes values present in a relation.
+//!
+//! The mechanics support "Leapfrog Trie Join" style execution.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -7,6 +18,9 @@ const Variable = @import("variable.zig").Variable;
 const gallop = @import("variable.zig").gallop;
 const ExecutionContext = @import("context.zig").ExecutionContext;
 
+/// Creates a Leaper interface type for a Tuple and Value type.
+///
+/// The Leaper proposes candidate values and verifies/intersects them based on a prefix tuple.
 pub fn Leaper(comptime Tuple: type, comptime Val: type) type {
     return struct {
         const Self = @This();
