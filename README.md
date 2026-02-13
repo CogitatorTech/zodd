@@ -76,9 +76,10 @@ For example:
 ### Why Zodd?
 
 - Written in pure Zig with a simple API
-- Supports a subset of relational algebra with sorted, deduplicated relations
-- Supports fast incremental rule computation
-- Supports multi-way joins and anti-join operations
+- Implements semi-naive evaluation for efficient recursive query processing
+- Uses immutable, sorted, and deduplicated relations as core data structures
+- Supports parallel execution for joins and variable updates
+- Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 
