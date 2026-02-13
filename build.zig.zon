@@ -1,6 +1,6 @@
 .{
     .name = .zodd,
-    .version = "0.1.0-alpha.1",
+    .version = "0.1.0-alpha.2",
     .fingerprint = 0x2d03181bdd24914c, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.2",
     .dependencies = .{

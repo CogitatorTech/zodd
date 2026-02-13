@@ -4,6 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ordered = @import("ordered");
 const Relation = @import("relation.zig").Relation;
+const ExecutionContext = @import("context.zig").ExecutionContext;
 
 pub fn SecondaryIndex(
     comptime Tuple: type,
@@ -16,16 +17,23 @@ pub fn SecondaryIndex(
         const Self = @This();
         const Map = ordered.BTreeMap(Key, Relation(Tuple), key_compare, BRANCHING_FACTOR);
 
+        /// Underlying B-tree map.
         map: Map,
+        /// Allocator for the index.
         allocator: Allocator,
+        /// Execution context.
+        ctx: *ExecutionContext,
 
-        pub fn init(allocator: Allocator) Self {
+        /// Initializes a new secondary index.
+        pub fn init(ctx: *ExecutionContext) Self {
             return Self{
-                .map = Map.init(allocator),
-                .allocator = allocator,
+                .map = Map.init(ctx.allocator),
+                .allocator = ctx.allocator,
+                .ctx = ctx,
             };
         }
 
+        /// Deinitializes the index.
         pub fn deinit(self: *Self) void {
             var iter = self.map.iterator() catch return;
             defer iter.deinit();
@@ -36,33 +44,35 @@ pub fn SecondaryIndex(
             self.map.deinit();
         }
 
+        /// Inserts a tuple into the index.
         pub fn insert(self: *Self, tuple: Tuple) !void {
             const key = key_extractor(tuple);
             if (self.map.getPtr(key)) |rel_ptr| {
-                const single = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
+                const single = try Relation(Tuple).fromSlice(self.ctx, &[_]Tuple{tuple});
                 var mutable_single = single;
-                const new_rel = try rel_ptr.merge(&mutable_single);
+                errdefer mutable_single.deinit();
+                var old_rel = rel_ptr.*;
+                const new_rel = try old_rel.merge(&mutable_single);
                 rel_ptr.* = new_rel;
             } else {
-                const rel = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
+                const rel = try Relation(Tuple).fromSlice(self.ctx, &[_]Tuple{tuple});
                 try self.map.put(key, rel);
             }
         }
 
-        /// Bulk insert multiple tuples
+        /// Bulk insert multiple tuples.
         pub fn insertSlice(self: *Self, tuples: []const Tuple) !void {
             for (tuples) |t| {
                 try self.insert(t);
             }
         }
 
-        pub fn get(self: *const Self, key: Key) ?Relation(Tuple) {
-            if (self.map.get(key)) |rel| {
-                return rel.*;
-            }
-            return null;
+        /// Returns the relation for a given key.
+        pub fn get(self: *const Self, key: Key) ?*const Relation(Tuple) {
+            return self.map.get(key);
         }
 
+        /// Returns a relation covering the range [start_key, end_key).
         pub fn getRange(self: *Self, start_key: Key, end_key: Key) !Relation(Tuple) {
             var iter = try self.map.iterator();
             defer iter.deinit();
@@ -81,7 +91,7 @@ pub fn SecondaryIndex(
                 try result_tuples.appendSlice(self.allocator, entry.value.elements);
             }
 
-            return Relation(Tuple).fromSlice(self.allocator, result_tuples.items);
+            return Relation(Tuple).fromSlice(self.ctx, result_tuples.items);
         }
     };
 }
@@ -92,6 +102,7 @@ fn u32Compare(a: u32, b: u32) std.math.Order {
 
 test "SecondaryIndex: basic usage" {
     const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     const Index = SecondaryIndex(Tuple, u32, struct {
@@ -100,7 +111,7 @@ test "SecondaryIndex: basic usage" {
         }
     }.extract, u32Compare, 4);
 
-    var idx = Index.init(allocator);
+    var idx = Index.init(&ctx);
     defer idx.deinit();
 
     try idx.insert(.{ 1, 10 });
@@ -118,4 +129,30 @@ test "SecondaryIndex: basic usage" {
     var range_rel = try idx.getRange(10, 20);
     defer range_rel.deinit();
     try std.testing.expectEqual(@as(usize, 3), range_rel.len());
+}
+
+test "SecondaryIndex: getRange empty and inverted" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    const Index = SecondaryIndex(Tuple, u32, struct {
+        fn extract(t: Tuple) u32 {
+            return t[0];
+        }
+    }.extract, u32Compare, 4);
+
+    var idx = Index.init(&ctx);
+    defer idx.deinit();
+
+    try idx.insert(.{ 1, 10 });
+    try idx.insert(.{ 3, 30 });
+
+    var empty = try idx.getRange(4, 5);
+    defer empty.deinit();
+    try std.testing.expectEqual(@as(usize, 0), empty.len());
+
+    var inverted = try idx.getRange(5, 4);
+    defer inverted.deinit();
+    try std.testing.expectEqual(@as(usize, 0), inverted.len());
 }

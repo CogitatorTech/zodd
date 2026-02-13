@@ -16,19 +16,18 @@ This document outlines the features implemented in Zodd and the future goals for
 - [x] `Leaper` - Treefrog Leapjoin interface
 - [x] `ExtendWith` - propose values from a relation
 - [x] `FilterAnti` - negation (filter out matching tuples)
-- [x] `ExtendAnti` - set difference (propose non-matching values)
+- [x] `ExtendAnti` - anti-join (filter to keep non-matching values)
 
 ### Extra Features
 
-- [x] Stratified negation
+- [x] Negation primitives (anti-join and anti-extend)
 - [x] Aggregations
 - [x] Recursion limits
 - [x] Persistence
 - [x] Secondary indices
 - [x] Incremental maintenance
-- [ ] Parallel execution
+- [x] Parallel execution
 - [ ] CLI interface
-- [ ] WASM support
 - [ ] Streaming input
 - [ ] Rule DSL
 - [ ] Query planner

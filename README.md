@@ -23,11 +23,14 @@ Zodd is a small [Datalog](https://en.wikipedia.org/wiki/Datalog) engine written 
 
 ### What is Datalog?
 
-Datalog is a declarative logic programming language that is used in deductive databases.
-It is a subset of [Prolog](https://en.wikipedia.org/wiki/Prolog) programming language and allows you to define things like facts and rules
-and then query those facts and rules to derive new information.
+Datalog is a declarative logic programming language for deductive databases.
+In contrast to SQL, which needs explicit joins and subqueries, Datalog lets you express recursive relationships naturally.
+Instead of defining a schema and queries in a relational database,
+you define a set of facts (base data) and rules (logical implications), and a Datalog engine automatically computes all derivable conclusions
+iteratively.
 
-Below is a simple Datalog code-snippet that defines a graph and computes the transitive closure of that graph:
+Below is a Datalog program that defines a directed graph and computes its transitive closure.
+The [Simple Example](#simple-example) section shows how to implement this using Zodd in Zig.
 
 ```prolog
 % Facts: a graph (with four nodes and three edges)
@@ -36,21 +39,43 @@ edge(2, 3).
 edge(3, 4).
 
 % Rule: transitive closure of the graph
-% A transitive closure of a graph is a relation (a set of nodes) that contains all pairs
-% of nodes that are reachable from each other.
+% The transitive closure is the set of all node pairs (X, Y) where node Y is
+% reachable from node X through one or more directed edges.
 reachable(X, Y) :- edge(X, Y).
 reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
+
+% Query: find all pairs of nodes that are reachable from each other
+?- reachable(X, Y).
+
+%% Output:
+% X = 1, Y = 2
+% X = 1, Y = 3
+% X = 1, Y = 4
+% X = 2, Y = 3
+% X = 2, Y = 4
+% X = 3, Y = 4
 ```
 
-Example applications of Datalog include:
+Datalog is used in many application domains, especially when recursive querying over structured data is needed.
+For example:
 
-- Knowledge graphs and semantic reasoning
-- Program analysis (like static analysis of code)
-- Access control and authorization policies
+- Security and access control
+    - Role-based authorization with hierarchical permission inheritance and explicit denials
+    - Network reachability analysis through routing policies and firewall rules
+    - Taint analysis to trace untrusted data through program flows and detect vulnerabilities
+- Data governance and compliance
+    - Data lineage tracking through ETL pipelines for GDPR and CCPA compliance
+    - PII propagation analysis with anonymization checkpoints
+- Healthcare and life sciences
+    - Medical ontology reasoning with type hierarchies and property inheritance
+    - Drug-disease relationship inference and side effect prediction
+- Software engineering
+    - Dependency resolution with transitive closure and cycle detection
+    - Points-to analysis and other static analyses over program representations
 
 ### Why Zodd?
 
-- Written in pure Zig with a simple API and no external dependencies
+- Written in pure Zig with a simple API
 - Supports a subset of relational algebra with sorted, deduplicated relations
 - Supports fast incremental rule computation
 - Supports multi-way joins and anti-join operations
@@ -95,7 +120,7 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-#### A Simple Example
+#### Simple Example
 
 Finally, you can `@import("zodd")` and start using it in your Zig project.
 
@@ -107,11 +132,13 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    var ctx = try zodd.ExecutionContext.initWithThreads(allocator, 4);
+    defer ctx.deinit();
 
     const Edge = struct { u32, u32 };
 
     // Create base relation: edges in a graph
-    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
+    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
         .{ 3, 4 },
@@ -119,11 +146,11 @@ pub fn main() !void {
     defer edges.deinit();
 
     // Create variable for reachability (transitive closure)
-    var reachable = zodd.Variable(Edge).init(allocator);
+    var reachable = zodd.Variable(Edge).init(&ctx);
     defer reachable.deinit();
 
     // Initialize with base edges
-    try reachable.insertSlice(edges.elements);
+    try reachable.insertSlice(&ctx, edges.elements);
 
     // Fixed-point iteration: reachable(X,Z) :- reachable(X,Y), edge(Y,Z)
     while (try reachable.changed()) {
@@ -139,7 +166,7 @@ pub fn main() !void {
         }
 
         if (new_tuples.items.len > 0) {
-            const rel = try zodd.Relation(Edge).fromSlice(allocator, new_tuples.items);
+            const rel = try zodd.Relation(Edge).fromSlice(&ctx, new_tuples.items);
             try reachable.insert(rel);
         }
     }
@@ -159,8 +186,7 @@ pub fn main() !void {
 You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/#zodd.lib).
 
 Alternatively, you can use the `make docs` command to generate the documentation for the current version of Zodd.
-This will generate HTML documentation in the `docs/api` directory, which you can serve locally with `make serve-docs`
-and view in a web browser.
+This will generate HTML documentation in the `docs/api` directory, which you can serve locally with `make docs-serve` and view in a web browser.
 
 ### Examples
 
@@ -180,5 +206,5 @@ Zodd is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 * The logo is from [SVG Repo](https://www.svgrepo.com/svg/469003/gravity) with some modifications.
 * This project uses the [Minish](https://github.com/CogitatorTech/minish) framework for property-based testing and
-  the [Ordered](https://github.com/CogitatorTech/minish) Zig library.
+  the [Ordered](https://github.com/CogitatorTech/ordered) library for B-tree indices.
 * Zodd is inspired and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.
