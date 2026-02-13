@@ -46,7 +46,7 @@
 //! - `Relation`: The immutable data structure (sorted, deduplicated tuples).
 //! - `Variable`: The mutable relation for fixed-point iterations.
 //! - `join`: The merge-join algorithms.
-//! - `extend`: The primitives for extending tuples (semi-joins, anti-joins).
+//! - `extend`: The primitives for extending tuples (semi-joins and anti-joins).
 //! - `index`: The indexes for lookups.
 //! - `aggregate`: The group-by and aggregation operations.
 
