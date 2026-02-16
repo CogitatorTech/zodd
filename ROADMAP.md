@@ -27,7 +27,7 @@ This document outlines the features implemented in Zodd and the future goals for
 - [x] Secondary indices
 - [x] Incremental maintenance
 - [x] Parallel execution
-- [ ] CLI interface
+- [ ] CLI
 - [ ] Streaming input
 - [ ] Rule DSL
 - [ ] Query planner
