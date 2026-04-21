@@ -78,7 +78,6 @@ For example:
 - Written in pure Zig with a simple API
 - Implements semi-naive evaluation for efficient recursive query processing
 - Uses immutable, sorted, and deduplicated relations as core data structures
-- Supports parallel execution for joins and variable updates
 - Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
@@ -130,10 +129,10 @@ const std = @import("std");
 const zodd = @import("zodd");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = try zodd.ExecutionContext.initWithThreads(allocator, 4);
+    var ctx = zodd.ExecutionContext.init(allocator);
     defer ctx.deinit();
 
     const Edge = struct { u32, u32 };
@@ -155,13 +154,13 @@ pub fn main() !void {
 
     // Fixed-point iteration: reachable(X,Z) :- reachable(X,Y), edge(Y,Z)
     while (try reachable.changed()) {
-        var new_tuples = std.ArrayList(Edge).init(allocator);
-        defer new_tuples.deinit();
+        var new_tuples: std.ArrayList(Edge) = .empty;
+        defer new_tuples.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
             for (edges.elements) |e| {
                 if (e[0] == r[1]) {
-                    try new_tuples.append(.{ r[0], e[1] });
+                    try new_tuples.append(allocator, .{ r[0], e[1] });
                 }
             }
         }
