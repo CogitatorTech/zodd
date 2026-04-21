@@ -13,19 +13,19 @@
 //! ## Usage
 //!
 //! ```zig
-//! var v = try Variable(Edge).init(ctx, &initial_edges);
+//! var v = Variable(Edge).init(allocator);
 //! defer v.deinit();
 //!
+//! try v.insertSlice(initial_edges);
 //! while (try v.changed()) {
-//!     // Join logic here, populating v.next
-//!     try v.insert(new_facts);
+//!     // Join logic here, populating v via `insert` / `insertSlice`.
 //! }
 //! ```
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
-const ExecutionContext = @import("context.zig").ExecutionContext;
+const shrinkOrCopy = @import("relation.zig").shrinkOrCopy;
 
 pub fn Variable(comptime Tuple: type) type {
     return struct {
@@ -41,21 +41,14 @@ pub fn Variable(comptime Tuple: type) type {
         to_add: RelList,
         /// The allocator for internal structures.
         allocator: Allocator,
-        /// The execution context.
-        ctx: *ExecutionContext,
 
         /// Initializes a new variable.
-        ///
-        /// Arguments:
-        /// - `ctx`: The execution context.
-        /// - `initial_data`: (Optional) The initial relation.
-        pub fn init(ctx: *ExecutionContext) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
-                .stable = RelList{},
-                .recent = Rel.empty(ctx),
-                .to_add = RelList{},
-                .allocator = ctx.allocator,
-                .ctx = ctx,
+                .stable = RelList.empty,
+                .recent = Rel.empty(allocator),
+                .to_add = RelList.empty,
+                .allocator = allocator,
             };
         }
 
@@ -74,14 +67,16 @@ pub fn Variable(comptime Tuple: type) type {
             self.to_add.deinit(self.allocator);
         }
 
-        /// Inserts a relation into the variable.
+        /// Inserts a relation into the variable. The variable takes ownership
+        /// of the relation's storage; do not `deinit` it after calling this.
         pub fn insert(self: *Self, relation: Rel) Allocator.Error!void {
             try self.to_add.append(self.allocator, relation);
         }
 
-        /// Inserts a slice of tuples into the variable.
-        pub fn insertSlice(self: *Self, ctx: *ExecutionContext, tuples: []const Tuple) Allocator.Error!void {
-            const rel = try Rel.fromSlice(ctx, tuples);
+        /// Inserts a slice of tuples into the variable. The tuples are copied;
+        /// the caller retains ownership of `tuples`.
+        pub fn insertSlice(self: *Self, tuples: []const Tuple) Allocator.Error!void {
+            const rel = try Rel.fromSlice(self.allocator, tuples);
             try self.insert(rel);
         }
 
@@ -89,12 +84,17 @@ pub fn Variable(comptime Tuple: type) type {
         pub fn changed(self: *Self) Allocator.Error!bool {
             if (!self.recent.isEmpty()) {
                 var recent = self.recent;
-                self.recent = Rel.empty(self.ctx);
+                self.recent = Rel.empty(self.allocator);
+                // `recent` now owns the tuples. If anything below fails we
+                // must free them; on success we transfer ownership to
+                // `self.stable` and null out `recent`.
+                errdefer recent.deinit();
 
                 while (self.stable.items.len > 0) {
                     const last = &self.stable.items[self.stable.items.len - 1];
                     if (last.len() <= 2 * recent.len()) {
                         var popped = self.stable.pop() orelse break;
+                        errdefer popped.deinit();
                         recent = try recent.merge(&popped);
                     } else {
                         break;
@@ -102,12 +102,16 @@ pub fn Variable(comptime Tuple: type) type {
                 }
 
                 try self.stable.append(self.allocator, recent);
+                recent = Rel.empty(self.allocator);
             }
 
             if (self.to_add.items.len > 0) {
                 var to_add = self.to_add.pop().?;
+                errdefer to_add.deinit();
+
                 while (self.to_add.items.len > 0) {
                     var more = self.to_add.pop().?;
+                    errdefer more.deinit();
                     to_add = try to_add.merge(&more);
                 }
 
@@ -116,6 +120,7 @@ pub fn Variable(comptime Tuple: type) type {
                 }
 
                 self.recent = to_add;
+                to_add = Rel.empty(self.allocator);
             }
 
             return !self.recent.isEmpty();
@@ -142,12 +147,9 @@ pub fn Variable(comptime Tuple: type) type {
             if (write_idx < target.elements.len) {
                 if (write_idx == 0) {
                     target.deinit();
-                    target.* = Rel.empty(self.ctx);
+                    target.* = Rel.empty(self.allocator);
                 } else {
-                    target.elements = self.allocator.realloc(
-                        target.elements,
-                        write_idx,
-                    ) catch target.elements[0..write_idx];
+                    target.elements = try shrinkOrCopy(Tuple, self.allocator, target.elements, write_idx);
                 }
             }
         }
@@ -165,28 +167,40 @@ pub fn Variable(comptime Tuple: type) type {
         }
 
         /// Completes the variable and returns the final relation.
+        ///
+        /// **Destructive:** `complete` consumes the variable's internal
+        /// batches and returns a single merged `Relation`. After this call
+        /// the variable is left empty and should not be used again, other
+        /// than to `deinit` (which remains safe).
         pub fn complete(self: *Self) Allocator.Error!Rel {
             if (!self.recent.isEmpty()) {
                 try self.stable.append(self.allocator, self.recent);
-                self.recent = Rel.empty(self.ctx);
+                self.recent = Rel.empty(self.allocator);
             }
 
             if (self.to_add.items.len > 0) {
                 var to_add = self.to_add.pop().?;
+                errdefer to_add.deinit();
+
                 while (self.to_add.items.len > 0) {
                     var more = self.to_add.pop().?;
+                    errdefer more.deinit();
                     to_add = try to_add.merge(&more);
                 }
                 try self.stable.append(self.allocator, to_add);
+                to_add = Rel.empty(self.allocator);
             }
 
             if (self.stable.items.len == 0) {
-                return Rel.empty(self.ctx);
+                return Rel.empty(self.allocator);
             }
 
             var result = self.stable.pop().?;
+            errdefer result.deinit();
+
             while (self.stable.items.len > 0) {
                 var batch = self.stable.pop().?;
+                errdefer batch.deinit();
                 result = try result.merge(&batch);
             }
 
@@ -214,7 +228,11 @@ pub fn gallop(comptime T: type, slice: []const T, target: T) []const T {
         step = new_step;
     }
 
-    const end = @min(pos + step + 1, slice.len);
+    // Saturating arithmetic: `step` may be maxInt(usize) after the doubling
+    // loop saturated, in which case `pos + step + 1` would overflow.
+    const end_of_step = std.math.add(usize, pos, step) catch std.math.maxInt(usize);
+    const upper = std.math.add(usize, end_of_step, 1) catch std.math.maxInt(usize);
+    const end = @min(upper, slice.len);
     var lo = pos + 1;
     var hi = end;
 
@@ -232,12 +250,11 @@ pub fn gallop(comptime T: type, slice: []const T, target: T) []const T {
 
 test "Variable: basic lifecycle" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(&ctx);
+    var v = Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
 
     const changed1 = try v.changed();
     try std.testing.expect(changed1);
@@ -251,15 +268,14 @@ test "Variable: basic lifecycle" {
 
 test "Variable: deduplication across rounds" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(&ctx);
+    var v = Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
     _ = try v.changed();
 
-    try v.insertSlice(&ctx, &[_]u32{ 2, 3, 4, 5 });
+    try v.insertSlice(&[_]u32{ 2, 3, 4, 5 });
     const changed = try v.changed();
 
     try std.testing.expect(changed);
@@ -268,15 +284,14 @@ test "Variable: deduplication across rounds" {
 
 test "Variable: complete" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(&ctx);
+    var v = Variable(u32).init(allocator);
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
     _ = try v.changed();
     _ = try v.changed();
 
-    try v.insertSlice(&ctx, &[_]u32{ 4, 5 });
+    try v.insertSlice(&[_]u32{ 4, 5 });
     _ = try v.changed();
     _ = try v.changed();
 
@@ -289,15 +304,14 @@ test "Variable: complete" {
 
 test "Variable: totalLen" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
-    var v = Variable(u32).init(&ctx);
+    var v = Variable(u32).init(allocator);
     defer v.deinit();
 
     // Init: 0
     try std.testing.expectEqual(@as(usize, 0), v.totalLen());
 
     // Insert to_add: 3 items
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
     try std.testing.expectEqual(@as(usize, 3), v.totalLen());
 
     // Changed: recent=3, stable=0, to_add=0 (moved to recent)
@@ -310,7 +324,7 @@ test "Variable: totalLen" {
     try std.testing.expectEqual(@as(usize, 3), v.totalLen());
 
     // Add more
-    try v.insertSlice(&ctx, &[_]u32{4});
+    try v.insertSlice(&[_]u32{4});
     try std.testing.expectEqual(@as(usize, 4), v.totalLen());
 }
 
@@ -328,18 +342,38 @@ test "gallop: basic" {
     try std.testing.expectEqual(@as(usize, 0), result3.len);
 }
 
+test "gallop: target at the last element" {
+    // Locks in the edge case where the galloping step lands on the final
+    // index, which is where the `pos + step + 1` overflow path was reachable
+    // in principle. The saturating-add fix keeps this correct.
+    const slice = [_]u32{ 1, 2, 4, 8, 16, 32, 64, 128 };
+    const result = gallop(u32, &slice, 128);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqual(@as(u32, 128), result[0]);
+}
+
+test "gallop: target beyond saturated step" {
+    // With 1024 elements the step doubles to 1024 before termination; the
+    // boundary arithmetic must not overflow. Regression coverage for the
+    // saturating `end` computation in `gallop`.
+    var slice: [1024]u32 = undefined;
+    for (&slice, 0..) |*x, i| x.* = @intCast(i * 2);
+    const result = gallop(u32, &slice, 2045);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqual(@as(u32, 2046), result[0]);
+}
+
 test "Variable: changed filters against stable batches" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(&ctx);
+    var v = Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 });
     _ = try v.changed();
     _ = try v.changed();
 
-    try v.insertSlice(&ctx, &[_]u32{ 2, 4, 6, 8, 9 });
+    try v.insertSlice(&[_]u32{ 2, 4, 6, 8, 9 });
     const changed = try v.changed();
 
     try std.testing.expect(changed);
@@ -349,19 +383,75 @@ test "Variable: changed filters against stable batches" {
 
 test "Variable: changed with recent and to_add" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var v = Variable(u32).init(&ctx);
+    var v = Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
     _ = try v.changed();
 
-    try v.insertSlice(&ctx, &[_]u32{ 3, 5, 11, 12 });
+    try v.insertSlice(&[_]u32{ 3, 5, 11, 12 });
     const changed = try v.changed();
 
     try std.testing.expect(changed);
     try std.testing.expectEqual(@as(usize, 2), v.recent.len());
     try std.testing.expectEqual(@as(u32, 11), v.recent.elements[0]);
     try std.testing.expectEqual(@as(u32, 12), v.recent.elements[1]);
+}
+
+test "Variable: insertSlice with empty slice is a no-op" {
+    const allocator = std.testing.allocator;
+
+    var v = Variable(u32).init(allocator);
+    defer v.deinit();
+
+    try v.insertSlice(&[_]u32{});
+
+    // The empty insert lands as an empty Relation on the to_add queue; it
+    // should merely vanish through changed() without error or leaks.
+    const changed_result = try v.changed();
+    try std.testing.expect(!changed_result);
+    try std.testing.expectEqual(@as(usize, 0), v.totalLen());
+}
+
+test "Variable: changed returns false once no new facts arrive" {
+    const allocator = std.testing.allocator;
+
+    var v = Variable(u32).init(allocator);
+    defer v.deinit();
+
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
+    try std.testing.expect(try v.changed());
+    try std.testing.expect(!try v.changed());
+    try std.testing.expect(!try v.changed());
+}
+
+test "Variable: changed merges multiple to_add batches into recent" {
+    const allocator = std.testing.allocator;
+
+    var v = Variable(u32).init(allocator);
+    defer v.deinit();
+
+    try v.insertSlice(&[_]u32{ 1, 3, 5 });
+    try v.insertSlice(&[_]u32{ 2, 4, 6 });
+    try v.insertSlice(&[_]u32{ 5, 7 });
+
+    try std.testing.expect(try v.changed());
+    try std.testing.expectEqual(@as(usize, 7), v.recent.len());
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3, 4, 5, 6, 7 }, v.recent.elements);
+}
+
+test "Variable: complete folds to_add when nothing has been processed yet" {
+    const allocator = std.testing.allocator;
+
+    var v = Variable(u32).init(allocator);
+    defer v.deinit();
+
+    try v.insertSlice(&[_]u32{ 2, 1 });
+    try v.insertSlice(&[_]u32{ 3, 1 });
+
+    var result = try v.complete();
+    defer result.deinit();
+
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3 }, result.elements);
 }

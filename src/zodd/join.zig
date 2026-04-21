@@ -14,7 +14,6 @@ const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
 const Variable = @import("variable.zig").Variable;
 const gallop = @import("variable.zig").gallop;
-const ExecutionContext = @import("context.zig").ExecutionContext;
 
 /// Performs a merge-join between two sorted relations on a common key.
 ///
@@ -114,19 +113,22 @@ fn gallopKey(comptime Key: type, comptime Val: type, slice: []const struct { Key
 }
 
 /// Joins two variables and inserts the result into an output variable.
+///
+/// Runs the semi-naive pieces `recent × stable`, `stable × recent`, and
+/// `recent × recent` against `input1` and `input2`, collects the projected
+/// results via `logic`, and appends them as a single batch on `output`.
 pub fn joinInto(
     comptime Key: type,
     comptime Val1: type,
     comptime Val2: type,
     comptime Result: type,
-    ctx: *ExecutionContext,
     input1: *Variable(struct { Key, Val1 }),
     input2: *Variable(struct { Key, Val2 }),
     output: *Variable(Result),
     logic: fn (*const Key, *const Val1, *const Val2) Result,
 ) Allocator.Error!void {
     const ResultList = std.ArrayListUnmanaged(Result);
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(output.allocator);
 
     const Context = struct {
@@ -145,80 +147,12 @@ pub fn joinInto(
     var had_error = false;
     const cb_ctx = Context{ .results = &results, .alloc = output.allocator, .logic = &logic, .had_error = &had_error };
 
-    if (ctx.pool != null and (input1.stable.items.len + input2.stable.items.len) > 0) {
-        const Task = struct {
-            left: *const Relation(struct { Key, Val1 }),
-            right: *const Relation(struct { Key, Val2 }),
-            results: std.ArrayListUnmanaged(Result) = .{},
-            alloc: Allocator,
-            had_error: bool = false,
-
-            fn run(task: *@This()) void {
-                const TaskContext = struct {
-                    results: *std.ArrayListUnmanaged(Result),
-                    alloc: Allocator,
-                    logic: *const fn (*const Key, *const Val1, *const Val2) Result,
-                    had_error: *bool,
-
-                    fn callback(self: @This(), key: *const Key, v1: *const Val1, v2: *const Val2) void {
-                        self.results.append(self.alloc, self.logic(key, v1, v2)) catch {
-                            self.had_error.* = true;
-                        };
-                    }
-                };
-
-                const ctx_local = TaskContext{
-                    .results = &task.results,
-                    .alloc = task.alloc,
-                    .logic = &logic,
-                    .had_error = &task.had_error,
-                };
-
-                joinHelper(Key, Val1, Val2, task.left, task.right, ctx_local, TaskContext.callback);
-            }
-        };
-
-        const task_count = input1.stable.items.len + input2.stable.items.len;
-        const tasks = try ctx.allocator.alloc(Task, task_count);
-        defer ctx.allocator.free(tasks);
-
-        var idx: usize = 0;
-        for (input2.stable.items) |*batch2| {
-            tasks[idx] = .{ .left = &input1.recent, .right = batch2, .alloc = output.allocator };
-            idx += 1;
-        }
-        for (input1.stable.items) |*batch1| {
-            tasks[idx] = .{ .left = batch1, .right = &input2.recent, .alloc = output.allocator };
-            idx += 1;
-        }
-
-        if (ctx.pool) |*pool| {
-            var wg: std.Thread.WaitGroup = .{};
-            for (tasks) |*task| {
-                pool.*.spawnWg(&wg, Task.run, .{task});
-            }
-            wg.wait();
-        }
-
-        for (tasks) |*task| {
-            defer task.results.deinit(output.allocator);
-            if (task.had_error) {
-                return error.OutOfMemory;
-            }
-            if (task.results.items.len > 0) {
-                try results.appendSlice(output.allocator, task.results.items);
-            }
-        }
-    } else {
-        for (input2.stable.items) |*batch2| {
-            joinHelper(Key, Val1, Val2, &input1.recent, batch2, cb_ctx, Context.callback);
-        }
-
-        for (input1.stable.items) |*batch1| {
-            joinHelper(Key, Val1, Val2, batch1, &input2.recent, cb_ctx, Context.callback);
-        }
+    for (input2.stable.items) |*batch2| {
+        joinHelper(Key, Val1, Val2, &input1.recent, batch2, cb_ctx, Context.callback);
     }
-
+    for (input1.stable.items) |*batch1| {
+        joinHelper(Key, Val1, Val2, batch1, &input2.recent, cb_ctx, Context.callback);
+    }
     joinHelper(Key, Val1, Val2, &input1.recent, &input2.recent, cb_ctx, Context.callback);
 
     if (had_error) {
@@ -226,7 +160,7 @@ pub fn joinInto(
     }
 
     if (results.items.len > 0) {
-        const rel = try Relation(Result).fromSlice(ctx, results.items);
+        const rel = try Relation(Result).fromSlice(output.allocator, results.items);
         try output.insert(rel);
     }
 }
@@ -237,121 +171,43 @@ pub fn joinAnti(
     comptime Val: type,
     comptime FilterVal: type,
     comptime Result: type,
-    ctx: *ExecutionContext,
     input: *Variable(struct { Key, Val }),
     filter: *Variable(struct { Key, FilterVal }),
     output: *Variable(Result),
     logic: fn (*const Key, *const Val) Result,
 ) Allocator.Error!void {
     const ResultList = std.ArrayListUnmanaged(Result);
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(output.allocator);
 
-    if (ctx.pool != null and input.recent.elements.len > 0) {
-        const Task = struct {
-            slice: []const struct { Key, Val },
-            filter: *const Variable(struct { Key, FilterVal }),
-            results: std.ArrayListUnmanaged(Result) = .{},
-            alloc: Allocator,
-            logic: *const fn (*const Key, *const Val) Result,
-            had_error: bool = false,
+    for (input.recent.elements) |tuple| {
+        const key = tuple[0];
+        var found = false;
 
-            fn run(task: *@This()) void {
-                for (task.slice) |tuple| {
-                    const key = tuple[0];
-                    var found = false;
-
-                    {
-                        const slice = gallopKey(Key, FilterVal, task.filter.recent.elements, key);
-                        if (slice.len > 0 and countMatchingKeys(Key, FilterVal, slice, key) > 0) {
-                            found = true;
-                        }
-                    }
-
-                    if (!found) {
-                        for (task.filter.stable.items) |*batch| {
-                            const slice = gallopKey(Key, FilterVal, batch.elements, key);
-                            if (slice.len > 0 and countMatchingKeys(Key, FilterVal, slice, key) > 0) {
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!found) {
-                        task.results.append(task.alloc, task.logic(&key, &tuple[1])) catch {
-                            task.had_error = true;
-                            return;
-                        };
-                    }
-                }
-            }
-        };
-
-        const chunk: usize = 128;
-        const task_count = (input.recent.elements.len + chunk - 1) / chunk;
-        const tasks = try ctx.allocator.alloc(Task, task_count);
-        defer ctx.allocator.free(tasks);
-
-        var i: usize = 0;
-        while (i < task_count) : (i += 1) {
-            const start = i * chunk;
-            const end = @min(start + chunk, input.recent.elements.len);
-            tasks[i] = .{
-                .slice = input.recent.elements[start..end],
-                .filter = filter,
-                .alloc = output.allocator,
-                .logic = &logic,
-            };
-        }
-
-        if (ctx.pool) |*pool| {
-            var wg: std.Thread.WaitGroup = .{};
-            for (tasks) |*task| {
-                pool.*.spawnWg(&wg, Task.run, .{task});
-            }
-            wg.wait();
-        }
-
-        for (tasks) |*task| {
-            defer task.results.deinit(output.allocator);
-            if (task.had_error) {
-                return error.OutOfMemory;
-            }
-            if (task.results.items.len > 0) {
-                try results.appendSlice(output.allocator, task.results.items);
+        {
+            const slice = gallopKey(Key, FilterVal, filter.recent.elements, key);
+            if (slice.len > 0 and countMatchingKeys(Key, FilterVal, slice, key) > 0) {
+                found = true;
             }
         }
-    } else {
-        for (input.recent.elements) |tuple| {
-            const key = tuple[0];
-            var found = false;
 
-            {
-                const slice = gallopKey(Key, FilterVal, filter.recent.elements, key);
+        if (!found) {
+            for (filter.stable.items) |*batch| {
+                const slice = gallopKey(Key, FilterVal, batch.elements, key);
                 if (slice.len > 0 and countMatchingKeys(Key, FilterVal, slice, key) > 0) {
                     found = true;
+                    break;
                 }
             }
+        }
 
-            if (!found) {
-                for (filter.stable.items) |*batch| {
-                    const slice = gallopKey(Key, FilterVal, batch.elements, key);
-                    if (slice.len > 0 and countMatchingKeys(Key, FilterVal, slice, key) > 0) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!found) {
-                try results.append(output.allocator, logic(&key, &tuple[1]));
-            }
+        if (!found) {
+            try results.append(output.allocator, logic(&key, &tuple[1]));
         }
     }
 
     if (results.items.len > 0) {
-        const rel = try Relation(Result).fromSlice(ctx, results.items);
+        const rel = try Relation(Result).fromSlice(output.allocator, results.items);
         try output.insert(rel);
     }
 }
@@ -361,16 +217,15 @@ test "joinHelper: basic" {
     const Tuple2 = struct { u32, u32 };
 
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var input1 = try Relation(Tuple1).fromSlice(&ctx, &[_]Tuple1{
+    var input1 = try Relation(Tuple1).fromSlice(allocator, &[_]Tuple1{
         .{ 1, 10 },
         .{ 2, 20 },
         .{ 3, 30 },
     });
     defer input1.deinit();
 
-    var input2 = try Relation(Tuple2).fromSlice(&ctx, &[_]Tuple2{
+    var input2 = try Relation(Tuple2).fromSlice(allocator, &[_]Tuple2{
         .{ 2, 200 },
         .{ 3, 300 },
         .{ 3, 301 },
@@ -388,7 +243,7 @@ test "joinHelper: basic" {
         }
     };
 
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(allocator);
 
     joinHelper(u32, u32, u32, &input1, &input2, Context{ .results = &results, .alloc = allocator }, Context.callback);
@@ -398,25 +253,24 @@ test "joinHelper: basic" {
 
 test "joinInto: variable join" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
     const Tuple = struct { u32, u32 };
-    var v1 = Variable(Tuple).init(&ctx);
+    var v1 = Variable(Tuple).init(allocator);
     defer v1.deinit();
 
-    var v2 = Variable(Tuple).init(&ctx);
+    var v2 = Variable(Tuple).init(allocator);
     defer v2.deinit();
 
-    var output = Variable(struct { u32, u32, u32 }).init(&ctx);
+    var output = Variable(struct { u32, u32, u32 }).init(allocator);
     defer output.deinit();
 
-    try v1.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 } });
-    try v2.insertSlice(&ctx, &[_]Tuple{ .{ 2, 200 }, .{ 3, 300 } });
+    try v1.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 } });
+    try v2.insertSlice(&[_]Tuple{ .{ 2, 200 }, .{ 3, 300 } });
 
     _ = try v1.changed();
     _ = try v2.changed();
 
-    try joinInto(u32, u32, u32, struct { u32, u32, u32 }, &ctx, &v1, &v2, &output, struct {
+    try joinInto(u32, u32, u32, struct { u32, u32, u32 }, &v1, &v2, &output, struct {
         fn logic(key: *const u32, v1_val: *const u32, v2_val: *const u32) struct { u32, u32, u32 } {
             return .{ key.*, v1_val.*, v2_val.* };
         }
@@ -428,25 +282,24 @@ test "joinInto: variable join" {
 
 test "joinAnti: simple negation" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var input = Variable(Tuple).init(&ctx);
+    var input = Variable(Tuple).init(allocator);
     defer input.deinit();
 
-    var filter = Variable(Tuple).init(&ctx);
+    var filter = Variable(Tuple).init(allocator);
     defer filter.deinit();
 
-    var output = Variable(Tuple).init(&ctx);
+    var output = Variable(Tuple).init(allocator);
     defer output.deinit();
 
-    try input.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
-    try filter.insertSlice(&ctx, &[_]Tuple{.{ 2, 200 }});
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
+    try filter.insertSlice(&[_]Tuple{.{ 2, 200 }});
 
     _ = try input.changed();
     _ = try filter.changed();
 
-    try joinAnti(u32, u32, u32, Tuple, &ctx, &input, &filter, &output, struct {
+    try joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
         fn logic(key: *const u32, val: *const u32) Tuple {
             return .{ key.*, val.* };
         }
@@ -461,18 +314,17 @@ test "joinAnti: simple negation" {
 
 test "joinHelper: multiplicative matches" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const T1 = struct { u32, u32 };
     const T2 = struct { u32, u32 };
 
-    var input1 = try Relation(T1).fromSlice(&ctx, &[_]T1{
+    var input1 = try Relation(T1).fromSlice(allocator, &[_]T1{
         .{ 1, 10 },
         .{ 1, 11 },
         .{ 2, 20 },
     });
     defer input1.deinit();
 
-    var input2 = try Relation(T2).fromSlice(&ctx, &[_]T2{
+    var input2 = try Relation(T2).fromSlice(allocator, &[_]T2{
         .{ 1, 100 },
         .{ 1, 101 },
         .{ 2, 200 },
@@ -489,7 +341,7 @@ test "joinHelper: multiplicative matches" {
         }
     };
 
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(allocator);
 
     joinHelper(u32, u32, u32, &input1, &input2, Context{ .results = &results, .alloc = allocator }, Context.callback);
@@ -499,27 +351,26 @@ test "joinHelper: multiplicative matches" {
 
 test "joinInto: stable batches only" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var v1 = Variable(Tuple).init(&ctx);
+    var v1 = Variable(Tuple).init(allocator);
     defer v1.deinit();
 
-    var v2 = Variable(Tuple).init(&ctx);
+    var v2 = Variable(Tuple).init(allocator);
     defer v2.deinit();
 
-    var output = Variable(struct { u32, u32, u32 }).init(&ctx);
+    var output = Variable(struct { u32, u32, u32 }).init(allocator);
     defer output.deinit();
 
-    try v1.insertSlice(&ctx, &[_]Tuple{.{ 1, 10 }});
+    try v1.insertSlice(&[_]Tuple{.{ 1, 10 }});
     _ = try v1.changed();
     _ = try v1.changed();
 
-    try v2.insertSlice(&ctx, &[_]Tuple{ .{ 1, 100 }, .{ 2, 200 } });
+    try v2.insertSlice(&[_]Tuple{ .{ 1, 100 }, .{ 2, 200 } });
     _ = try v2.changed();
     _ = try v2.changed();
 
-    try joinInto(u32, u32, u32, struct { u32, u32, u32 }, &ctx, &v1, &v2, &output, struct {
+    try joinInto(u32, u32, u32, struct { u32, u32, u32 }, &v1, &v2, &output, struct {
         fn logic(key: *const u32, v1_val: *const u32, v2_val: *const u32) struct { u32, u32, u32 } {
             return .{ key.*, v1_val.*, v2_val.* };
         }
@@ -530,28 +381,26 @@ test "joinInto: stable batches only" {
     try std.testing.expectEqual(@as(usize, 0), output.recent.len());
 }
 
-test "joinAnti: parallel" {
+test "joinAnti: four tuples filtered by two" {
     const allocator = std.testing.allocator;
-    var ctx = try ExecutionContext.initWithThreads(allocator, 2);
-    defer ctx.deinit();
     const Tuple = struct { u32, u32 };
 
-    var input = Variable(Tuple).init(&ctx);
+    var input = Variable(Tuple).init(allocator);
     defer input.deinit();
 
-    var filter = Variable(Tuple).init(&ctx);
+    var filter = Variable(Tuple).init(allocator);
     defer filter.deinit();
 
-    var output = Variable(Tuple).init(&ctx);
+    var output = Variable(Tuple).init(allocator);
     defer output.deinit();
 
-    try input.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 }, .{ 4, 40 } });
-    try filter.insertSlice(&ctx, &[_]Tuple{ .{ 2, 200 }, .{ 4, 400 } });
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 }, .{ 4, 40 } });
+    try filter.insertSlice(&[_]Tuple{ .{ 2, 200 }, .{ 4, 400 } });
 
     _ = try input.changed();
     _ = try filter.changed();
 
-    try joinAnti(u32, u32, u32, Tuple, &ctx, &input, &filter, &output, struct {
+    try joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
         fn logic(key: *const u32, val: *const u32) Tuple {
             return .{ key.*, val.* };
         }

@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/CogitatorTech/zodd/blob/main/LICENSE)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/zodd/tree/main/examples)
 [![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/)
-[![Zig Version](https://img.shields.io/badge/Zig-0.15.2-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download/)
+[![Zig](https://img.shields.io/badge/zig-0.16.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/release/CogitatorTech/zodd.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/releases/latest)
 
 A small embeddable Datalog engine in Zig
@@ -78,7 +78,6 @@ For example:
 - Written in pure Zig with a simple API
 - Implements semi-naive evaluation for efficient recursive query processing
 - Uses immutable, sorted, and deduplicated relations as core data structures
-- Supports parallel execution for joins and variable updates
 - Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
@@ -105,7 +104,7 @@ Replace `<branch_or_tag>` with the desired branch or release tag, like `main` (f
 This command will download Zodd and add it to Zig's global cache and update your project's `build.zig.zon` file.
 
 > [!NOTE]
-> Zodd is developed and tested with Zig version 0.15.2.
+> Zodd is developed and tested with Zig version 0.16.0.
 
 #### Adding to Build Script
 
@@ -130,49 +129,42 @@ const std = @import("std");
 const zodd = @import("zodd");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = try zodd.ExecutionContext.initWithThreads(allocator, 4);
-    defer ctx.deinit();
 
     const Edge = struct { u32, u32 };
 
-    // Create base relation: edges in a graph
-    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
+    // Base relation: edges in a graph
+    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
         .{ 3, 4 },
     });
     defer edges.deinit();
 
-    // Create variable for reachability (transitive closure)
-    var reachable = zodd.Variable(Edge).init(&ctx);
+    // Variable holding the reachability closure
+    var reachable = zodd.Variable(Edge).init(allocator);
     defer reachable.deinit();
+    try reachable.insertSlice(edges.elements);
 
-    // Initialize with base edges
-    try reachable.insertSlice(&ctx, edges.elements);
-
-    // Fixed-point iteration: reachable(X,Z) :- reachable(X,Y), edge(Y,Z)
+    // Fixed-point iteration: reachable(X, Z) :- reachable(X, Y), edge(Y, Z)
     while (try reachable.changed()) {
-        var new_tuples = std.ArrayList(Edge).init(allocator);
-        defer new_tuples.deinit();
+        var batch: std.ArrayList(Edge) = .empty;
+        defer batch.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
             for (edges.elements) |e| {
-                if (e[0] == r[1]) {
-                    try new_tuples.append(.{ r[0], e[1] });
-                }
+                if (e[0] == r[1]) try batch.append(allocator, .{ r[0], e[1] });
             }
         }
 
-        if (new_tuples.items.len > 0) {
-            const rel = try zodd.Relation(Edge).fromSlice(&ctx, new_tuples.items);
+        if (batch.items.len > 0) {
+            const rel = try zodd.Relation(Edge).fromSlice(allocator, batch.items);
             try reachable.insert(rel);
         }
     }
 
-    // Get final result
     var result = try reachable.complete();
     defer result.deinit();
 

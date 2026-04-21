@@ -15,10 +15,9 @@ const zodd = @import("zodd");
 //   violation(D)     :- contains_pii(D), public_dataset(D).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - Data Lineage for Compliance\n", .{});
     std.debug.print("=================================================\n\n", .{});
@@ -130,10 +129,10 @@ pub fn main() !void {
 
     // -- Build relations --
 
-    var transforms = try zodd.Relation(Pair).fromSlice(&ctx, &transform_data);
+    var transforms = try zodd.Relation(Pair).fromSlice(allocator, &transform_data);
     defer transforms.deinit();
 
-    var anonymizes = try zodd.Relation(Pair).fromSlice(&ctx, &anonymize_data);
+    var anonymizes = try zodd.Relation(Pair).fromSlice(allocator, &anonymize_data);
     defer anonymizes.deinit();
 
     // -- Step 1: Propagate PII through the pipeline --
@@ -141,14 +140,14 @@ pub fn main() !void {
     //   contains_pii(D2) :- contains_pii(D1), transform(D1, D2),
     //                        NOT anonymizes(D1, D2).
 
-    var contains_pii = zodd.Variable(Scalar).init(&ctx);
+    var contains_pii = zodd.Variable(Scalar).init(allocator);
     defer contains_pii.deinit();
-    try contains_pii.insertSlice(&ctx, &source_pii_data);
+    try contains_pii.insertSlice(&source_pii_data);
 
     std.debug.print("\nPropagating PII through ETL pipeline...\n", .{});
 
     // Use ExtendWith to propose destinations for PII-containing datasets
-    var extend = zodd.ExtendWith(Scalar, u32, u32).init(&ctx, &transforms, &struct {
+    var extend = zodd.ExtendWith(Scalar, u32, u32).init(allocator, &transforms, &struct {
         fn key(tuple: *const Scalar) u32 {
             return tuple[0];
         }
@@ -159,7 +158,7 @@ pub fn main() !void {
         std.debug.print("  Iteration {}: {} datasets with PII\n", .{ iteration, contains_pii.recent.len() });
 
         // Use extendInto to find downstream datasets
-        var proposed = zodd.Variable(Pair).init(&ctx);
+        var proposed = zodd.Variable(Pair).init(allocator);
         defer proposed.deinit();
 
         const leaper = extend.leaper();
@@ -169,7 +168,6 @@ pub fn main() !void {
             Scalar,
             u32,
             Pair,
-            &ctx,
             &contains_pii,
             &leapers,
             &proposed,
@@ -184,7 +182,7 @@ pub fn main() !void {
 
         // Filter out anonymized transformations
         const ScalarList = std.ArrayListUnmanaged(Scalar);
-        var new_pii = ScalarList{};
+        var new_pii = ScalarList.empty;
         defer new_pii.deinit(allocator);
 
         for (proposed.recent.elements) |p| {
@@ -203,7 +201,7 @@ pub fn main() !void {
         }
 
         if (new_pii.items.len > 0) {
-            const rel = try zodd.Relation(Scalar).fromSlice(&ctx, new_pii.items);
+            const rel = try zodd.Relation(Scalar).fromSlice(allocator, new_pii.items);
             try contains_pii.insert(rel);
         }
 
@@ -251,14 +249,14 @@ pub fn main() !void {
 
     for (source_pii_data) |src| {
         // BFS from source through non-anonymized transforms to see if it reaches the target
-        var frontier = std.ArrayListUnmanaged(u32){};
+        var frontier = std.ArrayListUnmanaged(u32).empty;
         defer frontier.deinit(allocator);
         try frontier.append(allocator, src[0]);
 
         var found = false;
         var step: usize = 0;
         while (frontier.items.len > 0 and step < 20) : (step += 1) {
-            var next_frontier = std.ArrayListUnmanaged(u32){};
+            var next_frontier = std.ArrayListUnmanaged(u32).empty;
             defer next_frontier.deinit(allocator);
 
             for (frontier.items) |node| {

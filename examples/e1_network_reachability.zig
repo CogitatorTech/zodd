@@ -15,10 +15,9 @@ const zodd = @import("zodd");
 //   exposure(Z)     :- allowed(internet, Z).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - Network Reachability Analysis\n", .{});
     std.debug.print("===================================================\n\n", .{});
@@ -87,27 +86,27 @@ pub fn main() !void {
 
     // -- Build relations --
 
-    var links = try zodd.Relation(Pair).fromSlice(&ctx, &link_data);
+    var links = try zodd.Relation(Pair).fromSlice(allocator, &link_data);
     defer links.deinit();
 
-    var blocked = try zodd.Relation(Pair).fromSlice(&ctx, &blocked_data);
+    var blocked = try zodd.Relation(Pair).fromSlice(allocator, &blocked_data);
     defer blocked.deinit();
 
     // -- Step 1: Compute reachable zones (transitive routing) --
     //   reachable(A, B) :- link(A, B).
     //   reachable(A, C) :- reachable(A, B), link(B, C).
 
-    var reachable = zodd.Variable(Pair).init(&ctx);
+    var reachable = zodd.Variable(Pair).init(allocator);
     defer reachable.deinit();
 
-    try reachable.insertSlice(&ctx, links.elements);
+    try reachable.insertSlice(links.elements);
 
     std.debug.print("\nComputing transitive reachability...\n", .{});
 
     const PairList = std.ArrayListUnmanaged(Pair);
     var iteration: usize = 0;
     while (try reachable.changed()) : (iteration += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -119,7 +118,7 @@ pub fn main() !void {
         }
 
         if (results.items.len > 0) {
-            const rel = try zodd.Relation(Pair).fromSlice(&ctx, results.items);
+            const rel = try zodd.Relation(Pair).fromSlice(allocator, results.items);
             try reachable.insert(rel);
         }
 
@@ -139,7 +138,7 @@ pub fn main() !void {
 
     std.debug.print("\nApplying firewall rules...\n", .{});
 
-    var allowed = PairList{};
+    var allowed = PairList.empty;
     defer allowed.deinit(allocator);
 
     for (reach_result.elements) |r| {

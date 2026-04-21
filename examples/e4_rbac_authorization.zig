@@ -12,10 +12,9 @@ const zodd = @import("zodd");
 //   effective(U, P)  :- can_access(U, P), NOT denied(U, P).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - RBAC Authorization Example\n", .{});
     std.debug.print("=================================================\n\n", .{});
@@ -104,33 +103,33 @@ pub fn main() !void {
 
     // -- Build relations --
 
-    var user_role = try zodd.Relation(Pair).fromSlice(&ctx, &user_role_data);
+    var user_role = try zodd.Relation(Pair).fromSlice(allocator, &user_role_data);
     defer user_role.deinit();
 
-    var role_hier = try zodd.Relation(Pair).fromSlice(&ctx, &role_hier_data);
+    var role_hier = try zodd.Relation(Pair).fromSlice(allocator, &role_hier_data);
     defer role_hier.deinit();
 
-    var role_perm = try zodd.Relation(Pair).fromSlice(&ctx, &role_perm_data);
+    var role_perm = try zodd.Relation(Pair).fromSlice(allocator, &role_perm_data);
     defer role_perm.deinit();
 
-    var denied = try zodd.Relation(Pair).fromSlice(&ctx, &denied_data);
+    var denied = try zodd.Relation(Pair).fromSlice(allocator, &denied_data);
     defer denied.deinit();
 
     // -- Step 1: Compute has_role(User, Role) via transitive role inheritance --
     //   has_role(U, R) :- user_role(U, R).
     //   has_role(U, R2) :- has_role(U, R1), role_hier(R1, R2).
 
-    var has_role = zodd.Variable(Pair).init(&ctx);
+    var has_role = zodd.Variable(Pair).init(allocator);
     defer has_role.deinit();
 
-    try has_role.insertSlice(&ctx, user_role.elements);
+    try has_role.insertSlice(user_role.elements);
 
     std.debug.print("\nComputing effective roles via hierarchy...\n", .{});
 
     const PairList = std.ArrayListUnmanaged(Pair);
     var iter: usize = 0;
     while (try has_role.changed()) : (iter += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (has_role.recent.elements) |hr| {
@@ -146,7 +145,7 @@ pub fn main() !void {
         }
 
         if (results.items.len > 0) {
-            const rel = try zodd.Relation(Pair).fromSlice(&ctx, results.items);
+            const rel = try zodd.Relation(Pair).fromSlice(allocator, results.items);
             try has_role.insert(rel);
         }
 
@@ -170,29 +169,29 @@ pub fn main() !void {
     // has_role is (User, Role), so we need to re-key it as (Role, User).
     // role_perm is already (Role, Perm).
 
-    var has_role_by_role = zodd.Variable(Pair).init(&ctx);
+    var has_role_by_role = zodd.Variable(Pair).init(allocator);
     defer has_role_by_role.deinit();
     {
-        var flipped = PairList{};
+        var flipped = PairList.empty;
         defer flipped.deinit(allocator);
         for (has_role_result.elements) |hr| {
             try flipped.append(allocator, .{ hr[1], hr[0] }); // (Role, User)
         }
-        try has_role_by_role.insertSlice(&ctx, flipped.items);
+        try has_role_by_role.insertSlice(flipped.items);
         _ = try has_role_by_role.changed();
     }
 
-    var role_perm_var = zodd.Variable(Pair).init(&ctx);
+    var role_perm_var = zodd.Variable(Pair).init(allocator);
     defer role_perm_var.deinit();
-    try role_perm_var.insertSlice(&ctx, role_perm.elements);
+    try role_perm_var.insertSlice(role_perm.elements);
     _ = try role_perm_var.changed();
 
     const Triple = struct { u32, u32, u32 };
-    var can_access_triple = zodd.Variable(Triple).init(&ctx);
+    var can_access_triple = zodd.Variable(Triple).init(allocator);
     defer can_access_triple.deinit();
 
     // joinInto: key=Role, val1=User, val2=Perm -> (Role, User, Perm)
-    try zodd.joinInto(u32, u32, u32, Triple, &ctx, &has_role_by_role, &role_perm_var, &can_access_triple, struct {
+    try zodd.joinInto(u32, u32, u32, Triple, &has_role_by_role, &role_perm_var, &can_access_triple, struct {
         fn logic(role: *const u32, user: *const u32, perm: *const u32) Triple {
             _ = role;
             return .{ user.*, perm.*, 0 };
@@ -202,15 +201,15 @@ pub fn main() !void {
     _ = try can_access_triple.changed();
 
     // Extract (User, Perm) pairs
-    var can_access = zodd.Variable(Pair).init(&ctx);
+    var can_access = zodd.Variable(Pair).init(allocator);
     defer can_access.deinit();
     {
-        var pairs = PairList{};
+        var pairs = PairList.empty;
         defer pairs.deinit(allocator);
         for (can_access_triple.recent.elements) |t| {
             try pairs.append(allocator, .{ t[0], t[1] });
         }
-        try can_access.insertSlice(&ctx, pairs.items);
+        try can_access.insertSlice(pairs.items);
         _ = try can_access.changed();
     }
 
@@ -225,10 +224,10 @@ pub fn main() !void {
     // We need an anti-join on the full (User, Perm) pair. Since joinAnti keys on
     // the first tuple field only, we use a manual filter against the denied relation.
 
-    var effective = zodd.Variable(Pair).init(&ctx);
+    var effective = zodd.Variable(Pair).init(allocator);
     defer effective.deinit();
     {
-        var eff_list = PairList{};
+        var eff_list = PairList.empty;
         defer eff_list.deinit(allocator);
         for (can_access.recent.elements) |ca| {
             var is_denied = false;
@@ -242,7 +241,7 @@ pub fn main() !void {
                 try eff_list.append(allocator, ca);
             }
         }
-        try effective.insertSlice(&ctx, eff_list.items);
+        try effective.insertSlice(eff_list.items);
         _ = try effective.changed();
     }
 

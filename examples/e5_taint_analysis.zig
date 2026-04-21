@@ -15,10 +15,9 @@ const zodd = @import("zodd");
 // FilterAnti for sanitizer filtering.
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - Taint Analysis Example\n", .{});
     std.debug.print("=============================================\n\n", .{});
@@ -122,10 +121,10 @@ pub fn main() !void {
 
     // -- Build relations --
 
-    var flow = try zodd.Relation(Pair).fromSlice(&ctx, &flow_data);
+    var flow = try zodd.Relation(Pair).fromSlice(allocator, &flow_data);
     defer flow.deinit();
 
-    var sanitized = try zodd.Relation(Pair).fromSlice(&ctx, &sanitized_data);
+    var sanitized = try zodd.Relation(Pair).fromSlice(allocator, &sanitized_data);
     defer sanitized.deinit();
 
     // -- Step 1: Compute tainted variables using ExtendWith + FilterAnti --
@@ -140,16 +139,16 @@ pub fn main() !void {
     // After extension, we get the destination variable, then wrap it back into
     // a Scalar and feed it into the tainted variable.
 
-    var tainted = zodd.Variable(Scalar).init(&ctx);
+    var tainted = zodd.Variable(Scalar).init(allocator);
     defer tainted.deinit();
 
-    try tainted.insertSlice(&ctx, &source_data);
+    try tainted.insertSlice(&source_data);
 
     std.debug.print("\nComputing taint propagation...\n", .{});
 
     // ExtendWith: extract key from Scalar (the tainted var id), look up in flow relation
     // to get destination variables.
-    var extend = zodd.ExtendWith(Scalar, u32, u32).init(&ctx, &flow, &struct {
+    var extend = zodd.ExtendWith(Scalar, u32, u32).init(allocator, &flow, &struct {
         fn key(tuple: *const Scalar) u32 {
             return tuple[0];
         }
@@ -175,7 +174,7 @@ pub fn main() !void {
         std.debug.print("  Iteration {}: {} newly tainted variables\n", .{ iteration, tainted.recent.len() });
 
         // Use extendInto to propose destinations for recently tainted variables
-        var proposed = zodd.Variable(Pair).init(&ctx);
+        var proposed = zodd.Variable(Pair).init(allocator);
         defer proposed.deinit();
 
         const leaper = extend.leaper();
@@ -185,7 +184,6 @@ pub fn main() !void {
             Scalar,
             u32,
             Pair,
-            &ctx,
             &tainted,
             &leapers,
             &proposed,
@@ -200,7 +198,7 @@ pub fn main() !void {
 
         // Filter out sanitized flows and convert back to Scalar
         const ScalarList = std.ArrayListUnmanaged(Scalar);
-        var new_tainted = ScalarList{};
+        var new_tainted = ScalarList.empty;
         defer new_tainted.deinit(allocator);
 
         for (proposed.recent.elements) |p| {
@@ -217,7 +215,7 @@ pub fn main() !void {
         }
 
         if (new_tainted.items.len > 0) {
-            const rel = try zodd.Relation(Scalar).fromSlice(&ctx, new_tainted.items);
+            const rel = try zodd.Relation(Scalar).fromSlice(allocator, new_tainted.items);
             try tainted.insert(rel);
         }
 

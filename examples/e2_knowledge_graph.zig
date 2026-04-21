@@ -15,10 +15,9 @@ const zodd = @import("zodd");
 //   side_effect(Drug, S):- treats(Drug, D), has_symptom(D, S).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - Knowledge Graph Reasoning\n", .{});
     std.debug.print("================================================\n\n", .{});
@@ -117,31 +116,31 @@ pub fn main() !void {
 
     // -- Build relations --
 
-    var is_a_rel = try zodd.Relation(Pair).fromSlice(&ctx, &is_a_data);
+    var is_a_rel = try zodd.Relation(Pair).fromSlice(allocator, &is_a_data);
     defer is_a_rel.deinit();
 
-    var symptom_rel = try zodd.Relation(Pair).fromSlice(&ctx, &symptom_data);
+    var symptom_rel = try zodd.Relation(Pair).fromSlice(allocator, &symptom_data);
     defer symptom_rel.deinit();
 
-    var targets_rel = try zodd.Relation(Pair).fromSlice(&ctx, &targets_data);
+    var targets_rel = try zodd.Relation(Pair).fromSlice(allocator, &targets_data);
     defer targets_rel.deinit();
 
-    var assoc_rel = try zodd.Relation(Pair).fromSlice(&ctx, &assoc_data);
+    var assoc_rel = try zodd.Relation(Pair).fromSlice(allocator, &assoc_data);
     defer assoc_rel.deinit();
 
     // -- Step 1: Compute transitive type hierarchy --
     //   is_a(X, Z) :- is_a(X, Y), is_a(Y, Z).
 
-    var is_a = zodd.Variable(Pair).init(&ctx);
+    var is_a = zodd.Variable(Pair).init(allocator);
     defer is_a.deinit();
-    try is_a.insertSlice(&ctx, is_a_rel.elements);
+    try is_a.insertSlice(is_a_rel.elements);
 
     std.debug.print("\nComputing transitive type hierarchy...\n", .{});
 
     const PairList = std.ArrayListUnmanaged(Pair);
     var iter: usize = 0;
     while (try is_a.changed()) : (iter += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (is_a.recent.elements) |r| {
@@ -153,7 +152,7 @@ pub fn main() !void {
         }
 
         if (results.items.len > 0) {
-            const rel = try zodd.Relation(Pair).fromSlice(&ctx, results.items);
+            const rel = try zodd.Relation(Pair).fromSlice(allocator, results.items);
             try is_a.insert(rel);
         }
         if (iter > 50) break;
@@ -170,13 +169,13 @@ pub fn main() !void {
     // -- Step 2: Inherit symptoms through type hierarchy --
     //   has_symptom(D, S) :- is_a(D, D2), has_symptom(D2, S).
 
-    var has_symptom = zodd.Variable(Pair).init(&ctx);
+    var has_symptom = zodd.Variable(Pair).init(allocator);
     defer has_symptom.deinit();
-    try has_symptom.insertSlice(&ctx, symptom_rel.elements);
+    try has_symptom.insertSlice(symptom_rel.elements);
 
     // For each is_a(D, D2), propagate symptoms from D2 to D
     {
-        var inherited = PairList{};
+        var inherited = PairList.empty;
         defer inherited.deinit(allocator);
 
         for (is_a_result.elements) |r| {
@@ -198,7 +197,7 @@ pub fn main() !void {
         }
 
         if (inherited.items.len > 0) {
-            try has_symptom.insertSlice(&ctx, inherited.items);
+            try has_symptom.insertSlice(inherited.items);
         }
     }
     _ = try has_symptom.changed();
@@ -217,29 +216,29 @@ pub fn main() !void {
     // Join key = Protein. targets is (Drug, Protein), assoc is (Protein, Disease).
     // Rekey targets as (Protein, Drug) to align the join key.
 
-    var targets_by_protein = zodd.Variable(Pair).init(&ctx);
+    var targets_by_protein = zodd.Variable(Pair).init(allocator);
     defer targets_by_protein.deinit();
     {
-        var flipped = PairList{};
+        var flipped = PairList.empty;
         defer flipped.deinit(allocator);
         for (targets_rel.elements) |t| {
             try flipped.append(allocator, .{ t[1], t[0] }); // (Protein, Drug)
         }
-        try targets_by_protein.insertSlice(&ctx, flipped.items);
+        try targets_by_protein.insertSlice(flipped.items);
         _ = try targets_by_protein.changed();
     }
 
-    var assoc_var = zodd.Variable(Pair).init(&ctx);
+    var assoc_var = zodd.Variable(Pair).init(allocator);
     defer assoc_var.deinit();
-    try assoc_var.insertSlice(&ctx, assoc_rel.elements);
+    try assoc_var.insertSlice(assoc_rel.elements);
     _ = try assoc_var.changed();
 
     const Triple = struct { u32, u32, u32 };
-    var treats_triple = zodd.Variable(Triple).init(&ctx);
+    var treats_triple = zodd.Variable(Triple).init(allocator);
     defer treats_triple.deinit();
 
     // joinInto: key=Protein, val1=Drug, val2=Disease
-    try zodd.joinInto(u32, u32, u32, Triple, &ctx, &targets_by_protein, &assoc_var, &treats_triple, struct {
+    try zodd.joinInto(u32, u32, u32, Triple, &targets_by_protein, &assoc_var, &treats_triple, struct {
         fn logic(_: *const u32, drug: *const u32, disease: *const u32) Triple {
             return .{ drug.*, disease.*, 0 };
         }
@@ -248,7 +247,7 @@ pub fn main() !void {
     _ = try treats_triple.changed();
 
     // Extract (Drug, Disease) pairs
-    var treats = PairList{};
+    var treats = PairList.empty;
     defer treats.deinit(allocator);
 
     for (treats_triple.recent.elements) |t| {

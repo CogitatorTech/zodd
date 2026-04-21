@@ -4,33 +4,32 @@ const zodd = @import("zodd");
 
 test "incremental maintenance: monotonic updates" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var iter = zodd.Iteration(Tuple).init(&ctx, 100);
+    var iter = zodd.Iteration(Tuple).init(allocator, 100);
     defer iter.deinit();
 
     const B = try iter.variable();
     const A = try iter.variable();
 
-    try B.insertSlice(&ctx, &[_]Tuple{.{ 1, 2 }});
+    try B.insertSlice(&[_]Tuple{.{ 1, 2 }});
 
     while (try iter.changed()) {
         if (B.recent.len() > 0) {
-            const rel = try zodd.Relation(Tuple).fromSlice(&ctx, B.recent.elements);
+            const rel = try zodd.Relation(Tuple).fromSlice(allocator, B.recent.elements);
             try A.insert(rel);
         }
     }
 
     try testing.expectEqual(@as(usize, 1), A.totalLen());
 
-    try B.insertSlice(&ctx, &[_]Tuple{.{ 2, 3 }});
+    try B.insertSlice(&[_]Tuple{.{ 2, 3 }});
 
     iter.reset();
 
     while (try iter.changed()) {
         if (B.recent.len() > 0) {
-            const rel = try zodd.Relation(Tuple).fromSlice(&ctx, B.recent.elements);
+            const rel = try zodd.Relation(Tuple).fromSlice(allocator, B.recent.elements);
             try A.insert(rel);
         }
     }
@@ -47,24 +46,23 @@ test "incremental maintenance: monotonic updates" {
 
 test "incremental maintenance: join with new data after reset" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const KV = struct { u32, u32 };
     const Out = struct { u32, u32, u32 };
 
-    var iter = zodd.Iteration(KV).init(&ctx, 100);
+    var iter = zodd.Iteration(KV).init(allocator, 100);
     defer iter.deinit();
 
     const edges = try iter.variable();
     const labels = try iter.variable();
-    var joined = zodd.Variable(Out).init(&ctx);
+    var joined = zodd.Variable(Out).init(allocator);
     defer joined.deinit();
 
     // Round 1: edges={1->2}, labels={1->100}
-    try edges.insertSlice(&ctx, &[_]KV{.{ 1, 2 }});
-    try labels.insertSlice(&ctx, &[_]KV{.{ 1, 100 }});
+    try edges.insertSlice(&[_]KV{.{ 1, 2 }});
+    try labels.insertSlice(&[_]KV{.{ 1, 100 }});
 
     while (try iter.changed()) {
-        try zodd.joinInto(u32, u32, u32, Out, &ctx, edges, labels, &joined, struct {
+        try zodd.joinInto(u32, u32, u32, Out, edges, labels, &joined, struct {
             fn logic(key: *const u32, edge_val: *const u32, label_val: *const u32) Out {
                 return .{ key.*, edge_val.*, label_val.* };
             }
@@ -74,12 +72,12 @@ test "incremental maintenance: join with new data after reset" {
     try testing.expectEqual(@as(usize, 1), joined.totalLen());
 
     // Round 2: add edge 2->3 and label 2->200
-    try edges.insertSlice(&ctx, &[_]KV{.{ 2, 3 }});
-    try labels.insertSlice(&ctx, &[_]KV{.{ 2, 200 }});
+    try edges.insertSlice(&[_]KV{.{ 2, 3 }});
+    try labels.insertSlice(&[_]KV{.{ 2, 200 }});
     iter.reset();
 
     while (try iter.changed()) {
-        try zodd.joinInto(u32, u32, u32, Out, &ctx, edges, labels, &joined, struct {
+        try zodd.joinInto(u32, u32, u32, Out, edges, labels, &joined, struct {
             fn logic(key: *const u32, edge_val: *const u32, label_val: *const u32) Out {
                 return .{ key.*, edge_val.*, label_val.* };
             }
@@ -92,25 +90,24 @@ test "incremental maintenance: join with new data after reset" {
 
 test "incremental maintenance: transitive closure re-convergence" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Edge = struct { u32, u32 };
     const EdgeList = std.ArrayListUnmanaged(Edge);
 
     // Phase 1: edges 1->2, 2->3
-    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
+    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
     });
     defer edges.deinit();
 
-    var reachable = zodd.Variable(Edge).init(&ctx);
+    var reachable = zodd.Variable(Edge).init(allocator);
     defer reachable.deinit();
 
-    try reachable.insertSlice(&ctx, edges.elements);
+    try reachable.insertSlice(edges.elements);
 
     var iters: usize = 0;
     while (try reachable.changed()) {
-        var new = EdgeList{};
+        var new = EdgeList.empty;
         defer new.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -119,7 +116,7 @@ test "incremental maintenance: transitive closure re-convergence" {
             }
         }
         if (new.items.len > 0) {
-            try reachable.insert(try zodd.Relation(Edge).fromSlice(&ctx, new.items));
+            try reachable.insert(try zodd.Relation(Edge).fromSlice(allocator, new.items));
         }
         iters += 1;
         if (iters > 10) break;
@@ -129,18 +126,18 @@ test "incremental maintenance: transitive closure re-convergence" {
     try testing.expectEqual(@as(usize, 3), reachable.totalLen());
 
     // Phase 2: add edge 3->4
-    var edges2 = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
+    var edges2 = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
         .{ 3, 4 },
     });
     defer edges2.deinit();
 
-    try reachable.insertSlice(&ctx, &[_]Edge{.{ 3, 4 }});
+    try reachable.insertSlice(&[_]Edge{.{ 3, 4 }});
 
     iters = 0;
     while (try reachable.changed()) {
-        var new = EdgeList{};
+        var new = EdgeList.empty;
         defer new.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -156,7 +153,7 @@ test "incremental maintenance: transitive closure re-convergence" {
             }
         }
         if (new.items.len > 0) {
-            try reachable.insert(try zodd.Relation(Edge).fromSlice(&ctx, new.items));
+            try reachable.insert(try zodd.Relation(Edge).fromSlice(allocator, new.items));
         }
         iters += 1;
         if (iters > 10) break;
@@ -168,16 +165,15 @@ test "incremental maintenance: transitive closure re-convergence" {
 
 test "incremental maintenance: iteration reset with multiple variables" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
-    var iter = zodd.Iteration(u32).init(&ctx, 50);
+    var iter = zodd.Iteration(u32).init(allocator, 50);
     defer iter.deinit();
 
     const v1 = try iter.variable();
     const v2 = try iter.variable();
 
-    try v1.insertSlice(&ctx, &[_]u32{ 10, 20 });
-    try v2.insertSlice(&ctx, &[_]u32{ 30, 40 });
+    try v1.insertSlice(&[_]u32{ 10, 20 });
+    try v2.insertSlice(&[_]u32{ 30, 40 });
 
     // Converge
     while (try iter.changed()) {}
@@ -187,7 +183,7 @@ test "incremental maintenance: iteration reset with multiple variables" {
 
     // Reset and add more data
     iter.reset();
-    try v1.insertSlice(&ctx, &[_]u32{ 50, 60 });
+    try v1.insertSlice(&[_]u32{ 50, 60 });
 
     const changed = try iter.changed();
     try testing.expect(changed);

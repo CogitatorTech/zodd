@@ -8,16 +8,14 @@
 //! ```zig
 //! const zodd = @import("zodd");
 //!
-//! // Define tuple type
 //! const Edge = struct { u32, u32 };
 //!
-//! // Create from slice
-//! var rel = try zodd.Relation(Edge).fromSlice(ctx, &[_]Edge{
+//! var rel = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
 //!     .{ 1, 2 }, .{ 1, 2 }, .{ 2, 3 }
 //! });
 //! defer rel.deinit();
 //!
-//! // Elements are sorted and deduplicated
+//! // Elements are sorted and deduplicated.
 //! std.debug.assert(rel.elements.len == 2);
 //! ```
 
@@ -25,7 +23,23 @@ const std = @import("std");
 const mem = std.mem;
 const sort = std.sort;
 const Allocator = mem.Allocator;
-const ExecutionContext = @import("context.zig").ExecutionContext;
+
+/// Shrinks `slice` in place to `new_len`, or allocates a fresh smaller buffer
+/// and copies into it. On success the returned slice's length equals its
+/// allocation size, so `allocator.free` on it is safe. On error the input
+/// slice is untouched and remains owned by the caller; wrap the caller in an
+/// `errdefer` that frees the original allocation.
+pub fn shrinkOrCopy(comptime T: type, allocator: Allocator, slice: []T, new_len: usize) Allocator.Error![]T {
+    std.debug.assert(new_len <= slice.len);
+    if (new_len == slice.len) return slice;
+    if (allocator.realloc(slice, new_len)) |new_slice| {
+        return new_slice;
+    } else |_| {}
+    const new_buf = try allocator.alloc(T, new_len);
+    @memcpy(new_buf, slice[0..new_len]);
+    allocator.free(slice);
+    return new_buf;
+}
 
 pub fn Relation(comptime Tuple: type) type {
     return struct {
@@ -34,122 +48,46 @@ pub fn Relation(comptime Tuple: type) type {
         /// The underlying sorted, deduplicated slice of tuples.
         /// The slice is owned by the Relation.
         elements: []Tuple,
-        /// The allocator for the relation.
+        /// The allocator that owns the elements buffer.
         allocator: Allocator,
-        /// The execution context.
-        ctx: *ExecutionContext,
 
-        /// Creates a `Relation` from a slice of tuples.
-        ///
-        /// The function copies, sorts, and deduplicates the input slice.
-        /// It uses a thread pool for sorting if one is available.
-        ///
-        /// Arguments:
-        /// - `ctx`: The execution context.
-        /// - `input`: The slice of tuples.
-        ///
-        /// Returns: A new `Relation`.
-        pub fn fromSlice(ctx: *ExecutionContext, input: []const Tuple) Allocator.Error!Self {
+        /// Creates a `Relation` from a slice of tuples. The function copies,
+        /// sorts, and deduplicates the input slice.
+        pub fn fromSlice(allocator: Allocator, input: []const Tuple) Allocator.Error!Self {
             if (input.len == 0) {
                 return Self{
                     .elements = &[_]Tuple{},
-                    .allocator = ctx.allocator,
-                    .ctx = ctx,
+                    .allocator = allocator,
                 };
             }
 
-            const elements = try ctx.allocator.alloc(Tuple, input.len);
-            if (ctx.pool) |pool| {
-                const chunk: usize = 1024;
-                const task_count = (input.len + chunk - 1) / chunk;
-                const Task = struct {
-                    start: usize,
-                    end: usize,
-                    input: []const Tuple,
-                    output: []Tuple,
-
-                    fn run(task: *@This()) void {
-                        const size = task.end - task.start;
-                        if (size == 0) return;
-                        @memcpy(task.output[task.start..task.end], task.input[task.start..task.end]);
-                    }
-                };
-
-                const tasks = try ctx.allocator.alloc(Task, task_count);
-                defer ctx.allocator.free(tasks);
-
-                var wg: std.Thread.WaitGroup = .{};
-                var t: usize = 0;
-                while (t < task_count) : (t += 1) {
-                    const start = t * chunk;
-                    const end = @min(start + chunk, input.len);
-                    tasks[t] = .{ .start = start, .end = end, .input = input, .output = elements };
-                    pool.spawnWg(&wg, Task.run, .{&tasks[t]});
-                }
-
-                if (task_count > 0) {
-                    wg.wait();
-                }
-            } else {
-                @memcpy(elements, input);
-            }
-
-            if (ctx.pool) |pool| {
-                const chunk: usize = 2048;
-                const task_count = (input.len + chunk - 1) / chunk;
-                if (task_count > 1) {
-                    const Task = struct {
-                        start: usize,
-                        end: usize,
-                        data: []Tuple,
-
-                        fn run(task: *@This()) void {
-                            std.sort.pdq(Tuple, task.data[task.start..task.end], {}, lessThan);
-                        }
-                    };
-
-                    const tasks = try ctx.allocator.alloc(Task, task_count);
-                    defer ctx.allocator.free(tasks);
-
-                    var wg: std.Thread.WaitGroup = .{};
-                    var t2: usize = 0;
-                    while (t2 < task_count) : (t2 += 1) {
-                        const start = t2 * chunk;
-                        const end = @min(start + chunk, input.len);
-                        tasks[t2] = .{ .start = start, .end = end, .data = elements };
-                        pool.spawnWg(&wg, Task.run, .{&tasks[t2]});
-                    }
-
-                    wg.wait();
-                }
-            }
+            const elements = try allocator.alloc(Tuple, input.len);
+            errdefer allocator.free(elements);
+            @memcpy(elements, input);
 
             sort.pdq(Tuple, elements, {}, lessThan);
 
             const unique_len = deduplicate(elements);
 
             if (unique_len < elements.len) {
-                const shrunk = ctx.allocator.realloc(elements, unique_len) catch elements[0..unique_len];
+                const shrunk = try shrinkOrCopy(Tuple, allocator, elements, unique_len);
                 return Self{
                     .elements = shrunk,
-                    .allocator = ctx.allocator,
-                    .ctx = ctx,
+                    .allocator = allocator,
                 };
             }
 
             return Self{
                 .elements = elements,
-                .allocator = ctx.allocator,
-                .ctx = ctx,
+                .allocator = allocator,
             };
         }
 
         /// Creates an empty relation.
-        pub fn empty(ctx: *ExecutionContext) Self {
+        pub fn empty(allocator: Allocator) Self {
             return Self{
                 .elements = &[_]Tuple{},
-                .allocator = ctx.allocator,
-                .ctx = ctx,
+                .allocator = allocator,
             };
         }
 
@@ -171,7 +109,12 @@ pub fn Relation(comptime Tuple: type) type {
             return self.elements.len == 0;
         }
 
-        /// Merges this relation with another relation.
+        /// Merges this relation with another.
+        ///
+        /// **Destructive:** `merge` consumes both `self` and `other`. After
+        /// this call both input relations are left in an empty state; their
+        /// storage is either reused or freed. Only the returned `Relation` is
+        /// valid to keep using.
         pub fn merge(self: *Self, other: *Self) Allocator.Error!Self {
             if (self.elements.len == 0) {
                 const result = other.*;
@@ -235,18 +178,16 @@ pub fn Relation(comptime Tuple: type) type {
             other.deinit();
 
             if (k < merged.len) {
-                const shrunk = self.allocator.realloc(merged, k) catch merged[0..k];
+                const shrunk = try shrinkOrCopy(Tuple, self.allocator, merged, k);
                 return Self{
                     .elements = shrunk,
                     .allocator = self.allocator,
-                    .ctx = self.ctx,
                 };
             }
 
             return Self{
                 .elements = merged,
                 .allocator = self.allocator,
-                .ctx = self.ctx,
             };
         }
 
@@ -345,17 +286,17 @@ pub fn Relation(comptime Tuple: type) type {
 
         fn readValue(comptime T: type, reader: anytype) !T {
             return switch (@typeInfo(T)) {
-                .int => try reader.readInt(T, .little),
-                .bool => (try reader.readInt(u8, .little)) != 0,
+                .int => try reader.takeInt(T, .little),
+                .bool => (try reader.takeInt(u8, .little)) != 0,
                 .float => blk: {
                     const IntType = std.meta.Int(.unsigned, @bitSizeOf(T));
-                    const bits = try reader.readInt(IntType, .little);
+                    const bits = try reader.takeInt(IntType, .little);
                     break :blk @as(T, @bitCast(bits));
                 },
                 .@"enum" => blk: {
                     const info = @typeInfo(T).@"enum";
                     const Tag = info.tag_type;
-                    const bits = try reader.readInt(Tag, .little);
+                    const bits = try reader.takeInt(Tag, .little);
                     break :blk @as(T, @enumFromInt(bits));
                 },
                 .array => |info| blk: {
@@ -389,33 +330,33 @@ pub fn Relation(comptime Tuple: type) type {
         }
 
         /// Loads a relation from a reader.
-        pub fn load(ctx: *ExecutionContext, reader: anytype) !Self {
-            return loadWithLimit(ctx, reader, std.math.maxInt(usize));
+        pub fn load(allocator: Allocator, reader: anytype) !Self {
+            return loadWithLimit(allocator, reader, std.math.maxInt(usize));
         }
 
         /// Loads a relation from a reader with a limit on the number of elements.
-        pub fn loadWithLimit(ctx: *ExecutionContext, reader: anytype, max_len: usize) !Self {
+        pub fn loadWithLimit(allocator: Allocator, reader: anytype, max_len: usize) !Self {
             if (!isSerializableType(Tuple)) return error.UnsupportedType;
-            const magic = try reader.readBytesNoEof(7);
-            if (!std.mem.eql(u8, &magic, "ZODDREL")) {
+            const magic = try reader.takeArray(7);
+            if (!std.mem.eql(u8, magic, "ZODDREL")) {
                 return error.InvalidFormat;
             }
-            const version = try reader.readInt(u8, .little);
+            const version = try reader.takeInt(u8, .little);
             if (version != 1) {
                 return error.UnsupportedVersion;
             }
 
-            const length_u64 = try reader.readInt(u64, .little);
+            const length_u64 = try reader.takeInt(u64, .little);
             const length = std.math.cast(usize, length_u64) orelse return error.InvalidFormat;
             if (length == 0) {
-                return Self.empty(ctx);
+                return Self.empty(allocator);
             }
             if (length > max_len) {
                 return error.TooLarge;
             }
 
-            const elements = try ctx.allocator.alloc(Tuple, length);
-            errdefer ctx.allocator.free(elements);
+            const elements = try allocator.alloc(Tuple, length);
+            errdefer allocator.free(elements);
 
             var i: usize = 0;
             while (i < length) : (i += 1) {
@@ -426,18 +367,16 @@ pub fn Relation(comptime Tuple: type) type {
             const unique_len = deduplicate(elements);
 
             if (unique_len < elements.len) {
-                const shrunk = ctx.allocator.realloc(elements, unique_len) catch elements[0..unique_len];
+                const shrunk = try shrinkOrCopy(Tuple, allocator, elements, unique_len);
                 return Self{
                     .elements = shrunk,
-                    .allocator = ctx.allocator,
-                    .ctx = ctx,
+                    .allocator = allocator,
                 };
             }
 
             return Self{
                 .elements = elements,
-                .allocator = ctx.allocator,
-                .ctx = ctx,
+                .allocator = allocator,
             };
         }
     };
@@ -445,8 +384,7 @@ pub fn Relation(comptime Tuple: type) type {
 
 test "Relation: empty" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
-    var rel = Relation(u32).empty(&ctx);
+    var rel = Relation(u32).empty(allocator);
     defer rel.deinit();
 
     try std.testing.expect(rel.isEmpty());
@@ -455,23 +393,22 @@ test "Relation: empty" {
 
 test "Relation: persistence" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var original = try Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+    var original = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{
         .{ 1, 10 },
         .{ 2, 20 },
         .{ 3, 30 },
     });
     defer original.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try original.save(buffer.writer(allocator));
+    try original.save(&aw.writer);
 
-    var fbs = std.io.fixedBufferStream(buffer.items);
-    var loaded = try Relation(Tuple).load(&ctx, fbs.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(allocator, &reader);
     defer loaded.deinit();
 
     try std.testing.expectEqual(original.len(), loaded.len());
@@ -480,10 +417,9 @@ test "Relation: persistence" {
 
 test "Relation: fromSlice sorts and deduplicates" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const input = [_]u32{ 5, 3, 3, 1, 5, 2, 1 };
 
-    var rel = try Relation(u32).fromSlice(&ctx, &input);
+    var rel = try Relation(u32).fromSlice(allocator, &input);
     defer rel.deinit();
 
     try std.testing.expectEqual(@as(usize, 4), rel.len());
@@ -492,7 +428,6 @@ test "Relation: fromSlice sorts and deduplicates" {
 
 test "Relation: tuple type" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
     const input = [_]Tuple{
         .{ 2, 1 },
@@ -501,7 +436,7 @@ test "Relation: tuple type" {
         .{ 1, 1 },
     };
 
-    var rel = try Relation(Tuple).fromSlice(&ctx, &input);
+    var rel = try Relation(Tuple).fromSlice(allocator, &input);
     defer rel.deinit();
 
     try std.testing.expectEqual(@as(usize, 3), rel.len());
@@ -512,10 +447,9 @@ test "Relation: tuple type" {
 
 test "Relation: merge" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var rel1 = try Relation(u32).fromSlice(&ctx, &[_]u32{ 1, 3, 5 });
-    var rel2 = try Relation(u32).fromSlice(&ctx, &[_]u32{ 2, 3, 4 });
+    var rel1 = try Relation(u32).fromSlice(allocator, &[_]u32{ 1, 3, 5 });
+    var rel2 = try Relation(u32).fromSlice(allocator, &[_]u32{ 2, 3, 4 });
 
     var merged = try rel1.merge(&rel2);
     defer merged.deinit();
@@ -526,13 +460,12 @@ test "Relation: merge" {
 
 test "Relation: load normalizes order" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    var writer = buffer.writer(allocator);
+    const writer = &aw.writer;
     try writer.writeAll("ZODDREL");
     try writer.writeInt(u8, 1, .little);
     const raw = [_]Tuple{
@@ -546,8 +479,8 @@ test "Relation: load normalizes order" {
         try writer.writeInt(u32, tuple[1], .little);
     }
 
-    var reader = std.io.fixedBufferStream(buffer.items);
-    var rel = try Relation(Tuple).load(&ctx, reader.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var rel = try Relation(Tuple).load(allocator, &reader);
     defer rel.deinit();
 
     try std.testing.expectEqual(@as(usize, 2), rel.len());
@@ -557,18 +490,17 @@ test "Relation: load normalizes order" {
 
 test "Relation: loadWithLimit zero length with zero limit" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    var writer = buffer.writer(allocator);
+    const writer = &aw.writer;
     try writer.writeAll("ZODDREL");
     try writer.writeInt(u8, 1, .little);
     try writer.writeInt(u64, 0, .little);
 
-    var reader = std.io.fixedBufferStream(buffer.items);
-    var rel = try Relation(u32).loadWithLimit(&ctx, reader.reader(), 0);
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var rel = try Relation(u32).loadWithLimit(allocator, &reader, 0);
     defer rel.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), rel.len());
@@ -576,73 +508,177 @@ test "Relation: loadWithLimit zero length with zero limit" {
 
 test "Relation: scalar save and load" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
 
-    var original = try Relation(u32).fromSlice(&ctx, &[_]u32{ 3, 1, 2, 2 });
+    var original = try Relation(u32).fromSlice(allocator, &[_]u32{ 3, 1, 2, 2 });
     defer original.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try original.save(buffer.writer(allocator));
+    try original.save(&aw.writer);
 
-    var fbs = std.io.fixedBufferStream(buffer.items);
-    var loaded = try Relation(u32).load(&ctx, fbs.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(u32).load(allocator, &reader);
     defer loaded.deinit();
 
     try std.testing.expectEqual(original.len(), loaded.len());
     try std.testing.expectEqualSlices(u32, original.elements, loaded.elements);
 }
 
-test "Relation: fromSlice parallel copy" {
-    const allocator = std.testing.allocator;
-    var ctx = try ExecutionContext.initWithThreads(allocator, 2);
-    defer ctx.deinit();
-
-    const input = [_]u32{ 5, 3, 3, 1, 5, 2, 1 };
-
-    var rel = try Relation(u32).fromSlice(&ctx, &input);
-    defer rel.deinit();
-
-    try std.testing.expectEqual(@as(usize, 4), rel.len());
-    try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3, 5 }, rel.elements);
-}
-
-test "Relation: merge parallel copy" {
-    const allocator = std.testing.allocator;
-    var ctx = try ExecutionContext.initWithThreads(allocator, 2);
-    defer ctx.deinit();
-
-    var rel1 = try Relation(u32).fromSlice(&ctx, &[_]u32{ 1, 3, 5 });
-    var rel2 = try Relation(u32).fromSlice(&ctx, &[_]u32{ 2, 3, 4 });
-
-    var merged = try rel1.merge(&rel2);
-    defer merged.deinit();
-
-    try std.testing.expectEqual(@as(usize, 5), merged.len());
-    try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3, 4, 5 }, merged.elements);
-}
-
 test "Relation: save/load unsupported type" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Bad = struct { *u8 };
 
-    var rel = Relation(Bad).empty(&ctx);
+    var rel = Relation(Bad).empty(allocator);
     defer rel.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try std.testing.expectError(error.UnsupportedType, rel.save(buffer.writer(allocator)));
+    try std.testing.expectError(error.UnsupportedType, rel.save(&aw.writer));
 
     var header: [16]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&header);
-    try fbs.writer().writeAll("ZODDREL");
-    try fbs.writer().writeInt(u8, 1, .little);
-    try fbs.writer().writeInt(u64, 0, .little);
-    const used = fbs.pos;
+    var header_writer = std.Io.Writer.fixed(&header);
+    try header_writer.writeAll("ZODDREL");
+    try header_writer.writeInt(u8, 1, .little);
+    try header_writer.writeInt(u64, 0, .little);
+    const used = header_writer.end;
 
-    var reader_fbs = std.io.fixedBufferStream(header[0..used]);
-    try std.testing.expectError(error.UnsupportedType, Relation(Bad).load(&ctx, reader_fbs.reader()));
+    var reader_fbs = std.Io.Reader.fixed(header[0..used]);
+    try std.testing.expectError(error.UnsupportedType, Relation(Bad).load(allocator, &reader_fbs));
+}
+
+test "shrinkOrCopy: no-op when new_len equals current length" {
+    const allocator = std.testing.allocator;
+    const buf = try allocator.alloc(u32, 5);
+    defer allocator.free(buf);
+    for (buf, 0..) |*slot, i| slot.* = @intCast(i);
+
+    const result = try shrinkOrCopy(u32, allocator, buf, buf.len);
+    try std.testing.expectEqual(buf.ptr, result.ptr);
+    try std.testing.expectEqual(buf.len, result.len);
+}
+
+test "shrinkOrCopy: in-place shrink preserves prefix" {
+    const allocator = std.testing.allocator;
+    const buf = try allocator.alloc(u32, 10);
+    for (buf, 0..) |*slot, i| slot.* = @intCast(i);
+
+    const result = try shrinkOrCopy(u32, allocator, buf, 4);
+    defer allocator.free(result);
+
+    try std.testing.expectEqual(@as(usize, 4), result.len);
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 0, 1, 2, 3 }, result);
+}
+
+test "shrinkOrCopy: copy fallback when remap is rejected" {
+    const RemapRejecting = struct {
+        child: std.mem.Allocator,
+
+        pub fn allocator(self: *@This()) std.mem.Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .remap = remap,
+                    .free = free,
+                },
+            };
+        }
+
+        fn alloc(ctx: *anyopaque, l: usize, al: std.mem.Alignment, ra: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawAlloc(l, al, ra);
+        }
+        fn resize(ctx: *anyopaque, m: []u8, al: std.mem.Alignment, nl: usize, ra: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawResize(m, al, nl, ra);
+        }
+        fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+            return null;
+        }
+        fn free(ctx: *anyopaque, m: []u8, al: std.mem.Alignment, ra: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.child.rawFree(m, al, ra);
+        }
+    };
+
+    var rr = RemapRejecting{ .child = std.testing.allocator };
+    const a = rr.allocator();
+
+    const buf = try a.alloc(u32, 8);
+    for (buf, 0..) |*slot, i| slot.* = @intCast(i * 3);
+
+    const result = try shrinkOrCopy(u32, a, buf, 3);
+    defer a.free(result);
+
+    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 0, 3, 6 }, result);
+}
+
+test "Relation: save/load round-trip for signed ints" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { i32, i32 };
+
+    var original = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{
+        .{ -7, 42 },
+        .{ -1, 0 },
+        .{ 100, -100 },
+    });
+    defer original.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try original.save(&aw.writer);
+
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(allocator, &reader);
+    defer loaded.deinit();
+
+    try std.testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+}
+
+test "Relation: save/load round-trip for floats" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32, f64 };
+
+    var original = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{
+        .{ 1, 3.14 },
+        .{ 2, -0.5 },
+        .{ 3, 1.0e20 },
+    });
+    defer original.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try original.save(&aw.writer);
+
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(allocator, &reader);
+    defer loaded.deinit();
+
+    try std.testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+}
+
+test "Relation: save/load round-trip for differently-sized ints" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u8, u64 };
+
+    var original = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{
+        .{ 0, std.math.maxInt(u64) },
+        .{ 255, 0 },
+        .{ 127, 12345 },
+    });
+    defer original.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try original.save(&aw.writer);
+
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(allocator, &reader);
+    defer loaded.deinit();
+
+    try std.testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
 }
