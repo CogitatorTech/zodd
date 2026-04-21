@@ -9,7 +9,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ordered = @import("ordered");
 const Relation = @import("relation.zig").Relation;
-const ExecutionContext = @import("context.zig").ExecutionContext;
 
 pub fn SecondaryIndex(
     comptime Tuple: type,
@@ -26,15 +25,12 @@ pub fn SecondaryIndex(
         map: Map,
         /// Allocator for the index.
         allocator: Allocator,
-        /// Execution context.
-        ctx: *ExecutionContext,
 
         /// Initializes a new secondary index.
-        pub fn init(ctx: *ExecutionContext) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
-                .map = Map.init(ctx.allocator),
-                .allocator = ctx.allocator,
-                .ctx = ctx,
+                .map = Map.init(allocator),
+                .allocator = allocator,
             };
         }
 
@@ -59,14 +55,14 @@ pub fn SecondaryIndex(
         pub fn insert(self: *Self, tuple: Tuple) !void {
             const key = key_extractor(tuple);
             if (self.map.getPtr(key)) |rel_ptr| {
-                const single = try Relation(Tuple).fromSlice(self.ctx, &[_]Tuple{tuple});
+                const single = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
                 var mutable_single = single;
                 errdefer mutable_single.deinit();
                 var old_rel = rel_ptr.*;
                 const new_rel = try old_rel.merge(&mutable_single);
                 rel_ptr.* = new_rel;
             } else {
-                const rel = try Relation(Tuple).fromSlice(self.ctx, &[_]Tuple{tuple});
+                const rel = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
                 try self.map.put(key, rel);
             }
         }
@@ -104,7 +100,7 @@ pub fn SecondaryIndex(
                 try result_tuples.appendSlice(self.allocator, entry.value.elements);
             }
 
-            return Relation(Tuple).fromSlice(self.ctx, result_tuples.items);
+            return Relation(Tuple).fromSlice(self.allocator, result_tuples.items);
         }
     };
 }
@@ -115,7 +111,6 @@ fn u32Compare(a: u32, b: u32) std.math.Order {
 
 test "SecondaryIndex: basic usage" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     const Index = SecondaryIndex(Tuple, u32, struct {
@@ -124,7 +119,7 @@ test "SecondaryIndex: basic usage" {
         }
     }.extract, u32Compare, 4);
 
-    var idx = Index.init(&ctx);
+    var idx = Index.init(allocator);
     defer idx.deinit();
 
     try idx.insert(.{ 1, 10 });
@@ -146,7 +141,6 @@ test "SecondaryIndex: basic usage" {
 
 test "SecondaryIndex: getRange empty and inverted" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     const Index = SecondaryIndex(Tuple, u32, struct {
@@ -155,7 +149,7 @@ test "SecondaryIndex: getRange empty and inverted" {
         }
     }.extract, u32Compare, 4);
 
-    var idx = Index.init(&ctx);
+    var idx = Index.init(allocator);
     defer idx.deinit();
 
     try idx.insert(.{ 1, 10 });
@@ -174,7 +168,6 @@ test "SecondaryIndex: getRange end is inclusive" {
     // Locks in the closed-interval [start, end] contract documented on
     // getRange. A regression here would be a silent behavior change.
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     const Index = SecondaryIndex(Tuple, u32, struct {
@@ -183,7 +176,7 @@ test "SecondaryIndex: getRange end is inclusive" {
         }
     }.extract, u32Compare, 4);
 
-    var idx = Index.init(&ctx);
+    var idx = Index.init(allocator);
     defer idx.deinit();
 
     try idx.insert(.{ 1, 10 });

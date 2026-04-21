@@ -4,12 +4,11 @@ const zodd = @import("zodd");
 
 test "regression: totalLen includes to_add batches" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
-    var v = zodd.Variable(u32).init(&ctx);
+    var v = zodd.Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
 
     try testing.expectEqual(@as(usize, 3), v.totalLen());
 
@@ -17,22 +16,21 @@ test "regression: totalLen includes to_add batches" {
 
     try testing.expectEqual(@as(usize, 3), v.totalLen());
 
-    try v.insertSlice(&ctx, &[_]u32{ 4, 5 });
+    try v.insertSlice(&[_]u32{ 4, 5 });
 
     try testing.expectEqual(@as(usize, 5), v.totalLen());
 }
 
 test "regression: Iteration cleanup handles variables" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
-    var iter = zodd.Iteration(u32).init(&ctx, null);
+    var iter = zodd.Iteration(u32).init(allocator, null);
 
     const v1 = try iter.variable();
     const v2 = try iter.variable();
 
-    try v1.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
-    try v2.insertSlice(&ctx, &[_]u32{ 4, 5 });
+    try v1.insertSlice(&[_]u32{ 1, 2, 3 });
+    try v2.insertSlice(&[_]u32{ 4, 5 });
 
     _ = try iter.changed();
 
@@ -41,10 +39,9 @@ test "regression: Iteration cleanup handles variables" {
 
 test "regression: intersection correctness with sorted values" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const KV = struct { u32, u32 };
 
-    var rel = try zodd.Relation(KV).fromSlice(&ctx, &[_]KV{
+    var rel = try zodd.Relation(KV).fromSlice(allocator, &[_]KV{
         .{ 1, 10 },
         .{ 1, 20 },
         .{ 1, 30 },
@@ -53,7 +50,7 @@ test "regression: intersection correctness with sorted values" {
     });
     defer rel.deinit();
 
-    var ext = zodd.ExtendWith(u32, u32, u32).init(&ctx, &rel, struct {
+    var ext = zodd.ExtendWith(u32, u32, u32).init(allocator, &rel, struct {
         fn f(t: *const u32) u32 {
             return t.*;
         }
@@ -74,21 +71,20 @@ test "regression: intersection correctness with sorted values" {
 
 test "regression: variable deduplication across multiple rounds" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
-    var v = zodd.Variable(u32).init(&ctx);
+    var v = zodd.Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
     _ = try v.changed();
 
-    try v.insertSlice(&ctx, &[_]u32{ 2, 3, 4, 5 });
+    try v.insertSlice(&[_]u32{ 2, 3, 4, 5 });
     const changed1 = try v.changed();
     try testing.expect(changed1);
 
     try testing.expectEqual(@as(usize, 2), v.recent.len());
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3, 4, 5 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3, 4, 5 });
     const changed2 = try v.changed();
 
     try testing.expect(!changed2);
@@ -102,26 +98,25 @@ test "regression: variable deduplication across multiple rounds" {
 
 test "regression: extendInto error detection with allocation failure simulation" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32 };
     const Val = u32;
 
-    var source = zodd.Variable(Tuple).init(&ctx);
+    var source = zodd.Variable(Tuple).init(allocator);
     defer source.deinit();
 
-    try source.insertSlice(&ctx, &[_]Tuple{.{1}});
+    try source.insertSlice(&[_]Tuple{.{1}});
     _ = try source.changed();
 
-    var R_B = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+    var R_B = try zodd.Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
         .{ 1, 10 },
         .{ 1, 20 },
     });
     defer R_B.deinit();
 
-    var output = zodd.Variable(struct { u32, u32 }).init(&ctx);
+    var output = zodd.Variable(struct { u32, u32 }).init(allocator);
     defer output.deinit();
 
-    var extB = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &R_B, struct {
+    var extB = zodd.ExtendWith(Tuple, u32, Val).init(allocator, &R_B, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -129,7 +124,7 @@ test "regression: extendInto error detection with allocation failure simulation"
 
     var leapers = [_]zodd.Leaper(Tuple, Val){extB.leaper()};
 
-    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &ctx, &source, &leapers, &output, struct {
+    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &source, &leapers, &output, struct {
         fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
             return .{ t[0], v.* };
         }
@@ -141,10 +136,9 @@ test "regression: extendInto error detection with allocation failure simulation"
 
 test "regression: SecondaryIndex get returns pointer not copy" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    const Index = zodd.index.SecondaryIndex(Tuple, u32, struct {
+    const Index = zodd.SecondaryIndex(Tuple, u32, struct {
         fn extract(t: Tuple) u32 {
             return t[1];
         }
@@ -154,7 +148,7 @@ test "regression: SecondaryIndex get returns pointer not copy" {
         }
     }.cmp, 4);
 
-    var idx = Index.init(&ctx);
+    var idx = Index.init(allocator);
     defer idx.deinit();
 
     try idx.insert(.{ 1, 10 });
@@ -168,12 +162,11 @@ test "regression: SecondaryIndex get returns pointer not copy" {
 
 test "regression: Variable complete includes recent and to_add data" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
-    var v = zodd.Variable(u32).init(&ctx);
+    var v = zodd.Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3 });
 
     var result = try v.complete();
     defer result.deinit();
@@ -186,15 +179,14 @@ test "regression: Variable complete includes recent and to_add data" {
 
 test "regression: Variable complete with recent data not yet stable" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
-    var v = zodd.Variable(u32).init(&ctx);
+    var v = zodd.Variable(u32).init(allocator);
     defer v.deinit();
 
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2 });
+    try v.insertSlice(&[_]u32{ 1, 2 });
     _ = try v.changed();
 
-    try v.insertSlice(&ctx, &[_]u32{ 3, 4 });
+    try v.insertSlice(&[_]u32{ 3, 4 });
     _ = try v.changed();
 
     var result = try v.complete();
@@ -205,7 +197,6 @@ test "regression: Variable complete with recent data not yet stable" {
 
 test "regression: gallop with large step values" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
     const size = 1000;
     const data = try allocator.alloc(u32, size);
@@ -215,7 +206,7 @@ test "regression: gallop with large step values" {
         elem.* = @intCast(i * 2);
     }
 
-    var rel = try zodd.Relation(u32).fromSlice(&ctx, data);
+    var rel = try zodd.Relation(u32).fromSlice(allocator, data);
     defer rel.deinit();
 
     const target: u32 = 1500;
@@ -229,10 +220,9 @@ test "regression: gallop with large step values" {
 
 test "regression: Relation save and load with tuples" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var original = try zodd.Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+    var original = try zodd.Relation(Tuple).fromSlice(allocator, &[_]Tuple{
         .{ 2, 20 },
         .{ 1, 10 },
         .{ 3, 30 },
@@ -245,7 +235,7 @@ test "regression: Relation save and load with tuples" {
     try original.save(&aw.writer);
 
     var reader = std.Io.Reader.fixed(aw.writer.buffered());
-    var loaded = try zodd.Relation(Tuple).load(&ctx, &reader);
+    var loaded = try zodd.Relation(Tuple).load(allocator, &reader);
     defer loaded.deinit();
 
     try testing.expectEqual(original.len(), loaded.len());
@@ -254,26 +244,25 @@ test "regression: Relation save and load with tuples" {
 
 test "regression: extendInto with only ExtendAnti should not call propose" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32 };
     const Val = u32;
 
-    var source = zodd.Variable(Tuple).init(&ctx);
+    var source = zodd.Variable(Tuple).init(allocator);
     defer source.deinit();
 
-    try source.insertSlice(&ctx, &[_]Tuple{.{1}});
+    try source.insertSlice(&[_]Tuple{.{1}});
     _ = try source.changed();
 
     const KV = struct { u32, u32 };
-    var rel = try zodd.Relation(KV).fromSlice(&ctx, &[_]KV{
+    var rel = try zodd.Relation(KV).fromSlice(allocator, &[_]KV{
         .{ 2, 100 },
     });
     defer rel.deinit();
 
-    var output = zodd.Variable(struct { u32, u32 }).init(&ctx);
+    var output = zodd.Variable(struct { u32, u32 }).init(allocator);
     defer output.deinit();
 
-    var ext = zodd.ExtendAnti(Tuple, u32, Val).init(&ctx, &rel, struct {
+    var ext = zodd.ExtendAnti(Tuple, u32, Val).init(allocator, &rel, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -281,7 +270,7 @@ test "regression: extendInto with only ExtendAnti should not call propose" {
 
     var leapers = [_]zodd.Leaper(Tuple, Val){ext.leaper()};
 
-    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &ctx, &source, leapers[0..], &output, struct {
+    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &source, leapers[0..], &output, struct {
         fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
             return .{ t[0], v.* };
         }
@@ -293,10 +282,9 @@ test "regression: extendInto with only ExtendAnti should not call propose" {
 
 test "regression: SecondaryIndex does not leak memory on repeated inserts" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    const Index = zodd.index.SecondaryIndex(Tuple, u32, struct {
+    const Index = zodd.SecondaryIndex(Tuple, u32, struct {
         fn extract(t: Tuple) u32 {
             return t[0];
         }
@@ -306,7 +294,7 @@ test "regression: SecondaryIndex does not leak memory on repeated inserts" {
         }
     }.cmp, 4);
 
-    var idx = Index.init(&ctx);
+    var idx = Index.init(allocator);
     defer idx.deinit();
 
     try idx.insert(.{ 1, 100 });
@@ -319,25 +307,24 @@ test "regression: SecondaryIndex does not leak memory on repeated inserts" {
 
 test "regression: joinAnti searches full filter" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var input = zodd.Variable(Tuple).init(&ctx);
+    var input = zodd.Variable(Tuple).init(allocator);
     defer input.deinit();
 
-    var filter = zodd.Variable(Tuple).init(&ctx);
+    var filter = zodd.Variable(Tuple).init(allocator);
     defer filter.deinit();
 
-    var output = zodd.Variable(Tuple).init(&ctx);
+    var output = zodd.Variable(Tuple).init(allocator);
     defer output.deinit();
 
-    try input.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
-    try filter.insertSlice(&ctx, &[_]Tuple{ .{ 1, 100 }, .{ 3, 300 } });
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
+    try filter.insertSlice(&[_]Tuple{ .{ 1, 100 }, .{ 3, 300 } });
 
     _ = try input.changed();
     _ = try filter.changed();
 
-    try zodd.joinAnti(u32, u32, u32, Tuple, &ctx, &input, &filter, &output, struct {
+    try zodd.joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
         fn logic(key: *const u32, val: *const u32) Tuple {
             return .{ key.*, val.* };
         }
@@ -350,7 +337,6 @@ test "regression: joinAnti searches full filter" {
 
 test "regression: Relation loadWithLimit rejects large length" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     var aw: std.Io.Writer.Allocating = .init(allocator);
@@ -369,31 +355,30 @@ test "regression: Relation loadWithLimit rejects large length" {
     try writer.writeAll(std.mem.sliceAsBytes(&arr2));
 
     var reader = std.Io.Reader.fixed(aw.writer.buffered());
-    try testing.expectError(error.TooLarge, zodd.Relation(Tuple).loadWithLimit(&ctx, &reader, 1));
+    try testing.expectError(error.TooLarge, zodd.Relation(Tuple).loadWithLimit(allocator, &reader, 1));
 }
 
 test "regression: extendInto resets leaper error" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32 };
     const Val = u32;
 
-    var source = zodd.Variable(Tuple).init(&ctx);
+    var source = zodd.Variable(Tuple).init(allocator);
     defer source.deinit();
 
-    try source.insertSlice(&ctx, &[_]Tuple{.{1}});
+    try source.insertSlice(&[_]Tuple{.{1}});
     _ = try source.changed();
 
-    var rel = try zodd.Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+    var rel = try zodd.Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
         .{ 1, 10 },
         .{ 1, 20 },
     });
     defer rel.deinit();
 
-    var output = zodd.Variable(struct { u32, u32 }).init(&ctx);
+    var output = zodd.Variable(struct { u32, u32 }).init(allocator);
     defer output.deinit();
 
-    var ext = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &rel, struct {
+    var ext = zodd.ExtendWith(Tuple, u32, Val).init(allocator, &rel, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -402,7 +387,7 @@ test "regression: extendInto resets leaper error" {
     var leapers = [_]zodd.Leaper(Tuple, Val){ext.leaper()};
     leapers[0].had_error = true;
 
-    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &ctx, &source, &leapers, &output, struct {
+    try zodd.extendInto(Tuple, Val, struct { u32, u32 }, &source, &leapers, &output, struct {
         fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
             return .{ t[0], v.* };
         }
@@ -414,7 +399,6 @@ test "regression: extendInto resets leaper error" {
 
 test "regression: loadWithLimit rejects invalid magic" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     var aw: std.Io.Writer.Allocating = .init(allocator);
@@ -430,12 +414,11 @@ test "regression: loadWithLimit rejects invalid magic" {
     try writer.writeAll(std.mem.sliceAsBytes(&arr1));
 
     var reader = std.Io.Reader.fixed(aw.writer.buffered());
-    try testing.expectError(error.InvalidFormat, zodd.Relation(Tuple).loadWithLimit(&ctx, &reader, 10));
+    try testing.expectError(error.InvalidFormat, zodd.Relation(Tuple).loadWithLimit(allocator, &reader, 10));
 }
 
 test "regression: loadWithLimit rejects unsupported version" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
     var aw: std.Io.Writer.Allocating = .init(allocator);
@@ -451,34 +434,33 @@ test "regression: loadWithLimit rejects unsupported version" {
     try writer.writeAll(std.mem.sliceAsBytes(&arr1));
 
     var reader = std.Io.Reader.fixed(aw.writer.buffered());
-    try testing.expectError(error.UnsupportedVersion, zodd.Relation(Tuple).loadWithLimit(&ctx, &reader, 10));
+    try testing.expectError(error.UnsupportedVersion, zodd.Relation(Tuple).loadWithLimit(allocator, &reader, 10));
 }
 
 test "regression: joinAnti checks multiple stable batches" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var input = zodd.Variable(Tuple).init(&ctx);
+    var input = zodd.Variable(Tuple).init(allocator);
     defer input.deinit();
 
-    var filter = zodd.Variable(Tuple).init(&ctx);
+    var filter = zodd.Variable(Tuple).init(allocator);
     defer filter.deinit();
 
-    var output = zodd.Variable(Tuple).init(&ctx);
+    var output = zodd.Variable(Tuple).init(allocator);
     defer output.deinit();
 
-    try input.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 }, .{ 3, 30 } });
     _ = try input.changed();
 
-    try filter.insertSlice(&ctx, &[_]Tuple{.{ 1, 100 }});
+    try filter.insertSlice(&[_]Tuple{.{ 1, 100 }});
     _ = try filter.changed();
     _ = try filter.changed();
 
-    try filter.insertSlice(&ctx, &[_]Tuple{.{ 3, 300 }});
+    try filter.insertSlice(&[_]Tuple{.{ 3, 300 }});
     _ = try filter.changed();
 
-    try zodd.joinAnti(u32, u32, u32, Tuple, &ctx, &input, &filter, &output, struct {
+    try zodd.joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
         fn logic(key: *const u32, val: *const u32) Tuple {
             return .{ key.*, val.* };
         }
@@ -491,9 +473,8 @@ test "regression: joinAnti checks multiple stable batches" {
 
 test "regression: complete on empty Variable returns empty relation" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
 
-    var v = zodd.Variable(u32).init(&ctx);
+    var v = zodd.Variable(u32).init(allocator);
     defer v.deinit();
 
     var res = try v.complete();
@@ -504,25 +485,24 @@ test "regression: complete on empty Variable returns empty relation" {
 
 test "regression: joinInto with empty input produces empty output" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const KV = struct { u32, u32 };
     const Out = struct { u32, u32, u32 };
 
-    var v1 = zodd.Variable(KV).init(&ctx);
+    var v1 = zodd.Variable(KV).init(allocator);
     defer v1.deinit();
 
-    var v2 = zodd.Variable(KV).init(&ctx);
+    var v2 = zodd.Variable(KV).init(allocator);
     defer v2.deinit();
 
-    var out = zodd.Variable(Out).init(&ctx);
+    var out = zodd.Variable(Out).init(allocator);
     defer out.deinit();
 
-    try v1.insertSlice(&ctx, &[_]KV{.{ 1, 10 }});
+    try v1.insertSlice(&[_]KV{.{ 1, 10 }});
     _ = try v1.changed();
 
     _ = try v2.changed();
 
-    try zodd.joinInto(u32, u32, u32, Out, &ctx, &v1, &v2, &out, struct {
+    try zodd.joinInto(u32, u32, u32, Out, &v1, &v2, &out, struct {
         fn logic(k: *const u32, v1_val: *const u32, v2_val: *const u32) Out {
             return .{ k.*, v1_val.*, v2_val.* };
         }
@@ -534,24 +514,23 @@ test "regression: joinInto with empty input produces empty output" {
 
 test "regression: joinAnti with empty filter keeps all inputs" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var input = zodd.Variable(Tuple).init(&ctx);
+    var input = zodd.Variable(Tuple).init(allocator);
     defer input.deinit();
 
-    var filter = zodd.Variable(Tuple).init(&ctx);
+    var filter = zodd.Variable(Tuple).init(allocator);
     defer filter.deinit();
 
-    var output = zodd.Variable(Tuple).init(&ctx);
+    var output = zodd.Variable(Tuple).init(allocator);
     defer output.deinit();
 
-    try input.insertSlice(&ctx, &[_]Tuple{ .{ 1, 10 }, .{ 2, 20 } });
+    try input.insertSlice(&[_]Tuple{ .{ 1, 10 }, .{ 2, 20 } });
     _ = try input.changed();
 
     _ = try filter.changed();
 
-    try zodd.joinAnti(u32, u32, u32, Tuple, &ctx, &input, &filter, &output, struct {
+    try zodd.joinAnti(u32, u32, u32, Tuple, &input, &filter, &output, struct {
         fn logic(key: *const u32, val: *const u32) Tuple {
             return .{ key.*, val.* };
         }
@@ -563,21 +542,20 @@ test "regression: joinAnti with empty filter keeps all inputs" {
 
 test "regression: aggregate with unique keys" {
     const allocator = testing.allocator;
-    var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var rel = try zodd.Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+    var rel = try zodd.Relation(Tuple).fromSlice(allocator, &[_]Tuple{
         .{ 1, 10 },
         .{ 2, 20 },
         .{ 3, 30 },
     });
     defer rel.deinit();
 
-    var result = try zodd.aggregateFn(
+    var result = try zodd.aggregate(
         Tuple,
         u32,
         u32,
-        &ctx,
+        allocator,
         &rel,
         struct {
             fn key(t: *const Tuple) u32 {
@@ -679,10 +657,10 @@ test "regression: Relation.fromSlice survives realloc-shrink failure" {
     // Allocation sequence: #0 = initial elements buffer, #1 = realloc-internal
     // alloc during shrink. We fail #1 so the shrinkOrCopy fallback runs.
     var fa = FlakeyAllocator{ .child = testing.allocator, .fail_on_alloc = 1 };
-    var ctx = zodd.ExecutionContext.init(fa.allocator());
+    const allocator = fa.allocator();
 
     const input = [_]u32{ 1, 1, 2, 2, 3, 3 };
-    var rel = try zodd.Relation(u32).fromSlice(&ctx, &input);
+    var rel = try zodd.Relation(u32).fromSlice(allocator, &input);
     defer rel.deinit();
 
     try testing.expectEqual(@as(usize, 3), rel.len());
@@ -692,10 +670,10 @@ test "regression: Relation.fromSlice survives realloc-shrink failure" {
 
 test "regression: Relation.merge survives realloc-shrink failure" {
     var fa = FlakeyAllocator{ .child = testing.allocator };
-    var ctx = zodd.ExecutionContext.init(fa.allocator());
+    const allocator = fa.allocator();
 
-    var a = try zodd.Relation(u32).fromSlice(&ctx, &[_]u32{ 1, 3, 5 });
-    var b = try zodd.Relation(u32).fromSlice(&ctx, &[_]u32{ 3, 5, 7 });
+    var a = try zodd.Relation(u32).fromSlice(allocator, &[_]u32{ 1, 3, 5 });
+    var b = try zodd.Relation(u32).fromSlice(allocator, &[_]u32{ 3, 5, 7 });
 
     // After `fromSlice` twice with already-sorted+unique input, alloc_count
     // should reflect one alloc per relation. merge will alloc the merge buffer
@@ -713,7 +691,7 @@ test "regression: Relation.merge survives realloc-shrink failure" {
 
 test "regression: Relation.loadWithLimit survives realloc-shrink failure" {
     var fa = FlakeyAllocator{ .child = testing.allocator };
-    var ctx = zodd.ExecutionContext.init(fa.allocator());
+    const allocator = fa.allocator();
     const Tuple = struct { u32, u32 };
 
     // Build a valid serialized buffer with duplicates so load shrinks.
@@ -733,7 +711,7 @@ test "regression: Relation.loadWithLimit survives realloc-shrink failure" {
     fa.fail_on_alloc = 1;
 
     var reader = std.Io.Reader.fixed(aw.writer.buffered());
-    var loaded = try zodd.Relation(Tuple).load(&ctx, &reader);
+    var loaded = try zodd.Relation(Tuple).load(allocator, &reader);
     defer loaded.deinit();
 
     try testing.expectEqual(@as(usize, 2), loaded.len());
@@ -751,7 +729,7 @@ test "regression: SecondaryIndex.deinit frees map even if iterator fails" {
     // byte counter on FlakeyAllocator itself: under the old bug, deinit
     // freed nothing; with the fix, the B-tree's internal nodes are freed.
     var fa = FlakeyAllocator{ .child = std.heap.page_allocator };
-    var ctx = zodd.ExecutionContext.init(fa.allocator());
+    const allocator = fa.allocator();
 
     const Tuple = struct { u32, u32 };
     const u32Cmp = struct {
@@ -759,13 +737,13 @@ test "regression: SecondaryIndex.deinit frees map even if iterator fails" {
             return std.math.order(a, b);
         }
     }.f;
-    const Index = zodd.index.SecondaryIndex(Tuple, u32, struct {
+    const Index = zodd.SecondaryIndex(Tuple, u32, struct {
         fn extract(t: Tuple) u32 {
             return t[0];
         }
     }.extract, u32Cmp, 4);
 
-    var idx = Index.init(&ctx);
+    var idx = Index.init(allocator);
     try idx.insert(.{ 1, 10 });
     try idx.insert(.{ 2, 20 });
     try idx.insert(.{ 3, 30 });
@@ -784,21 +762,21 @@ test "regression: Variable.changed frees local batches on merge OOM" {
     // and merges the two. If the merge's internal alloc fails, both locals
     // must be freed. Before the fix they leaked.
     var fa = FlakeyAllocator{ .child = testing.allocator };
-    var ctx = zodd.ExecutionContext.init(fa.allocator());
+    const allocator = fa.allocator();
 
-    var v = zodd.Variable(u32).init(&ctx);
+    var v = zodd.Variable(u32).init(allocator);
     defer v.deinit();
 
     // Round 1: { 1, 2, 3, 4 } → self.recent.
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3, 4 });
+    try v.insertSlice(&[_]u32{ 1, 2, 3, 4 });
     _ = try v.changed();
 
     // Round 2: { 5, 6, 7, 8 } → self.recent; round 1 batch moves to stable.
-    try v.insertSlice(&ctx, &[_]u32{ 5, 6, 7, 8 });
+    try v.insertSlice(&[_]u32{ 5, 6, 7, 8 });
     _ = try v.changed();
 
     // Queue round 3's new tuples so changed() has real work to do.
-    try v.insertSlice(&ctx, &[_]u32{ 9, 10 });
+    try v.insertSlice(&[_]u32{ 9, 10 });
 
     // Round 3: with len(stable.last) == 4 and len(recent) == 4, changed()
     // triggers the stable+recent merge. Fail the merge buffer alloc.
@@ -813,96 +791,21 @@ test "regression: Variable.complete frees locals on merge OOM" {
     // complete() pops batches off self.stable and merges them into a single
     // result. A failing merge alloc must still free the in-flight locals.
     var fa = FlakeyAllocator{ .child = testing.allocator };
-    var ctx = zodd.ExecutionContext.init(fa.allocator());
+    const allocator = fa.allocator();
 
-    var v = zodd.Variable(u32).init(&ctx);
+    var v = zodd.Variable(u32).init(allocator);
     defer v.deinit();
 
     // Build up multiple stable batches.
-    try v.insertSlice(&ctx, &[_]u32{ 1, 2 });
+    try v.insertSlice(&[_]u32{ 1, 2 });
     _ = try v.changed();
-    try v.insertSlice(&ctx, &[_]u32{ 3, 4 });
+    try v.insertSlice(&[_]u32{ 3, 4 });
     _ = try v.changed();
-    try v.insertSlice(&ctx, &[_]u32{ 5, 6 });
+    try v.insertSlice(&[_]u32{ 5, 6 });
     _ = try v.changed();
 
     fa.fail_on_alloc = fa.alloc_count;
 
     try testing.expectError(error.OutOfMemory, v.complete());
-    try testing.expect(fa.alloc_failures > 0);
-}
-
-test "regression: extendInto cleans up all tasks on mid-loop clone failure" {
-    // The parallel extendInto path clones each leaper once per task in a
-    // tight loop. If cloning fails partway through, tasks whose leapers were
-    // already populated must be cleaned up. The old version did not track
-    // that, so testing.allocator's leak detector catches any regression.
-    const Tuple = struct { u32 };
-    const Val = u32;
-    const KV = struct { u32, u32 };
-
-    var fa = FlakeyAllocator{ .child = testing.allocator };
-    var ctx = try zodd.ExecutionContext.initWithThreads(fa.allocator(), 2);
-    defer ctx.deinit();
-
-    // > 128 tuples so extendInto splits into multiple tasks (chunk size 128).
-    var input: [200]Tuple = undefined;
-    for (&input, 0..) |*t, i| t.* = .{@intCast(i)};
-
-    var source = zodd.Variable(Tuple).init(&ctx);
-    defer source.deinit();
-    try source.insertSlice(&ctx, &input);
-    _ = try source.changed();
-
-    var rel = try zodd.Relation(KV).fromSlice(&ctx, &[_]KV{ .{ 1, 10 }, .{ 2, 20 } });
-    defer rel.deinit();
-
-    var ext = zodd.ExtendWith(Tuple, u32, Val).init(&ctx, &rel, struct {
-        fn f(t: *const Tuple) u32 {
-            return t[0];
-        }
-    }.f);
-    var leapers = [_]zodd.Leaper(Tuple, Val){ext.leaper()};
-
-    var output = zodd.Variable(KV).init(&ctx);
-    defer output.deinit();
-
-    // Allocation sequence inside extendInto's parallel branch:
-    //   [+0] tasks array
-    //   [+1] task 0 clones array   [+2] task 0 clone[0]
-    //   [+3] task 1 clones array   [+4] task 1 clone[0]
-    // Failing [+4] reproduces the leak scenario (task 0 fully populated).
-    fa.fail_on_alloc = fa.alloc_count + 4;
-
-    const result = zodd.extendInto(Tuple, Val, KV, &ctx, &source, &leapers, &output, struct {
-        fn logic(t: *const Tuple, v: *const Val) KV {
-            return .{ t[0], v.* };
-        }
-    }.logic);
-
-    try testing.expectError(error.OutOfMemory, result);
-    try testing.expect(fa.alloc_failures > 0);
-    // testing.allocator's leak check at scope exit is the actual regression
-    // assertion: with the old code, task 0's cloned leapers would leak.
-}
-
-test "regression: Variable.filterAgainst survives realloc-shrink failure" {
-    // filterAgainst compacts target in place, then shrinks. We drive it by
-    // inserting duplicates that get filtered out on the next `changed()`.
-    // Allocation counting across `Variable.changed()` and ArrayList growth is
-    // brittle, so instead of picking one exact index we fail every alloc of
-    // the exact shrink size by re-using shrinkOrCopy directly from our test.
-    // (Deterministic integration coverage for Variable is already provided by
-    // the fromSlice/merge/load tests above, which share the same helper.)
-    const allocator = testing.allocator;
-    const original = try allocator.alloc(u32, 8);
-    for (original, 0..) |*slot, i| slot.* = @intCast(i);
-
-    var fa = FlakeyAllocator{ .child = allocator, .fail_on_alloc = 0 };
-    const shrunk = try zodd.relation.shrinkOrCopy(u32, fa.allocator(), original, 5);
-    defer fa.allocator().free(shrunk);
-
-    try testing.expectEqual(@as(usize, 5), shrunk.len);
-    try testing.expectEqualSlices(u32, &[_]u32{ 0, 1, 2, 3, 4 }, shrunk);
     try testing.expect(fa.alloc_failures > 0);
 }

@@ -41,7 +41,6 @@ Priorities, in order:
 - `src/zodd/extend.zig`: Leaper-based extension primitives (`ExtendWith`, `FilterAnti`, `ExtendAnti`, `extendInto`).
 - `src/zodd/index.zig`: Indexes for keyed lookups.
 - `src/zodd/aggregate.zig`: Group-by and aggregation operations.
-- `src/zodd/context.zig`: `ExecutionContext` (allocator and shared state for a Datalog run).
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`).
 - `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e6_dependency_resolution.zig`) built as executables via
   `build.zig`.
@@ -54,10 +53,10 @@ Priorities, in order:
 
 ### Evaluation Pipeline
 
-A Datalog program flows through: `ExecutionContext` (`context.zig`) owns the allocator and shared state. Base data is loaded into a `Relation`
-(`relation.zig`). Derived predicates use a `Variable` (`variable.zig`) driven by an `Iteration` (`iteration.zig`) loop that calls `changed()` until a
-fixed point. Each iteration extends tuples via `join` (`join.zig`) or `extend` (`extend.zig`), optionally using indexes (`index.zig`) or aggregates
-(`aggregate.zig`).
+A Datalog program flows through: base data is loaded into a `Relation` (`relation.zig`). Derived predicates use a `Variable` (`variable.zig`) driven
+by an `Iteration` (`iteration.zig`) loop that calls `changed()` until a fixed point. Each iteration extends tuples via `join` (`join.zig`) or `extend`
+(`extend.zig`), optionally using indexes (`index.zig`) or aggregates (`aggregate.zig`). Every primitive takes a `std.mem.Allocator` directly; there is
+no wrapper context type.
 
 ### Relations and Variables Split
 

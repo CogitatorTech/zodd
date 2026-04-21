@@ -1,6 +1,6 @@
 //! # Zodd
 //!
-//! Zodd is a Datalog engine in Zig.
+//! Zodd is a small, embeddable Datalog engine in Zig.
 //!
 //! ## Quickstart
 //!
@@ -9,94 +9,107 @@
 //! const zodd = @import("zodd");
 //!
 //! pub fn main() !void {
-//!     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+//!     var gpa = std.heap.DebugAllocator(.{}){};
 //!     defer _ = gpa.deinit();
 //!     const allocator = gpa.allocator();
 //!
-//!     // 1. Create execution context
-//!     var ctx = zodd.ExecutionContext.init(allocator);
-//!     defer ctx.deinit();
-//!
-//!     // 2. Define relation (e.g., edge(x, y))
 //!     const Edge = struct { u32, u32 };
-//!     var edge = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
-//!         .{ 1, 2 }, .{ 2, 3 }, .{ 3, 4 }
+//!
+//!     // Base relation.
+//!     var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
+//!         .{ 1, 2 }, .{ 2, 3 }, .{ 3, 4 },
 //!     });
-//!     defer edge.deinit();
+//!     defer edges.deinit();
 //!
-//!     // 3. Define variable for transitive closure path(x, y)
-//!     var path = try zodd.Variable(Edge).init(&ctx, &edge);
-//!     defer path.deinit();
+//!     // Variable for the transitive closure.
+//!     var reachable = zodd.Variable(Edge).init(allocator);
+//!     defer reachable.deinit();
+//!     try reachable.insertSlice(edges.elements);
 //!
-//!     // 4. Run semi-naive evaluation
-//!     while (try path.changed()) {
-//!         // path(x, z) :- path(x, y), edge(y, z).
-//!         const new_paths = try zodd.joinInto(Edge, Edge, u32, &path, &edge, 1, 0, struct {
-//!             fn f(x: u32, y: u32, z: u32) Edge { return .{ x, z }; }
-//!         }.f);
-//!         try path.insert(new_paths);
+//!     // reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
+//!     while (try reachable.changed()) {
+//!         var batch: std.ArrayList(Edge) = .empty;
+//!         defer batch.deinit(allocator);
+//!         for (reachable.recent.elements) |r| {
+//!             for (edges.elements) |e| {
+//!                 if (e[0] == r[1]) try batch.append(allocator, .{ r[0], e[1] });
+//!             }
+//!         }
+//!         if (batch.items.len > 0) {
+//!             const rel = try zodd.Relation(Edge).fromSlice(allocator, batch.items);
+//!             try reachable.insert(rel);
+//!         }
 //!     }
 //!
-//!     std.debug.print("Path count: {}\n", .{path.complete().len});
+//!     var result = try reachable.complete();
+//!     defer result.deinit();
+//!     std.debug.print("Reachable pairs: {d}\n", .{result.len()});
 //! }
 //! ```
-//!
-//! ## Components
-//!
-//! - `Relation`: The immutable data structure (sorted, deduplicated tuples).
-//! - `Variable`: The mutable relation for fixed-point iterations.
-//! - `join`: The merge-join algorithms.
-//! - `extend`: The primitives for extending tuples (semi-joins and anti-joins).
-//! - `index`: The indexes for lookups.
-//! - `aggregate`: The group-by and aggregation operations.
 
-/// Relation module.
-pub const relation = @import("zodd/relation.zig");
-/// Variable module.
-pub const variable = @import("zodd/variable.zig");
-/// Iteration module.
-pub const iteration = @import("zodd/iteration.zig");
-/// Join module.
-pub const join = @import("zodd/join.zig");
-/// Extend module.
-pub const extend = @import("zodd/extend.zig");
-/// Execution context module.
-pub const context = @import("zodd/context.zig");
+const relation = @import("zodd/relation.zig");
+const variable = @import("zodd/variable.zig");
+const iteration = @import("zodd/iteration.zig");
+const join = @import("zodd/join.zig");
+const extend = @import("zodd/extend.zig");
+const index_mod = @import("zodd/index.zig");
+const aggregate_mod = @import("zodd/aggregate.zig");
 
-/// Index module.
-pub const index = @import("zodd/index.zig");
-/// Aggregation module.
-pub const aggregate = @import("zodd/aggregate.zig");
-
-/// Relation type.
+/// Immutable, sorted, deduplicated relation.
 pub const Relation = relation.Relation;
-/// Variable type.
+
+/// Mutable relation used inside fixed-point loops (holds stable, recent, and
+/// to-add batches for semi-naive evaluation).
 pub const Variable = variable.Variable;
-/// Gallop search helper.
+
+/// Exponential + binary search over a sorted slice.
 pub const gallop = variable.gallop;
-/// Iteration type.
+
+/// Fixed-point driver for a set of variables.
 pub const Iteration = iteration.Iteration;
-/// Join helper for sorted relations.
+
+/// Error set returned by `Iteration.changed`.
+pub const IterateError = iteration.IterateError;
+
+/// Sort-merge join between two sorted relations on a common key.
 pub const joinHelper = join.joinHelper;
-/// Join into a variable.
+
+/// Semi-naive join that inserts the projected result into an output variable.
 pub const joinInto = join.joinInto;
-/// Anti-join into a variable.
+
+/// Semi-naive anti-join; keeps tuples whose key is absent from `filter`.
 pub const joinAnti = join.joinAnti;
-/// Leaper interface for extend.
+
+/// Leaper vtable used by leapfrog-style extensions.
 pub const Leaper = extend.Leaper;
-/// Extend relation by key.
+
+/// Extends a tuple with every value that shares its key in a relation (semi-join).
 pub const ExtendWith = extend.ExtendWith;
-/// Anti filter using a relation.
+
+/// Drops tuples whose (key, val) pair is present in a relation (anti-join predicate).
 pub const FilterAnti = extend.FilterAnti;
-/// Anti extend using a relation.
+
+/// Extends a tuple with values for its key while excluding those present in another relation.
 pub const ExtendAnti = extend.ExtendAnti;
-/// Extend into a variable.
+
+/// Runs a leapfrog extension over `source.recent` and inserts results into `output`.
 pub const extendInto = extend.extendInto;
-/// Aggregate helper.
-pub const aggregateFn = aggregate.aggregate;
-/// Execution context type.
-pub const ExecutionContext = context.ExecutionContext;
+
+/// B-tree secondary index keyed by an extracted attribute.
+pub const SecondaryIndex = index_mod.SecondaryIndex;
+
+/// Group-by aggregation with a user-supplied folder.
+pub const aggregate = aggregate_mod.aggregate;
 
 test {
     @import("std").testing.refAllDecls(@This());
+    // Pull the modules themselves into test scope so their inline `test`
+    // blocks compile; the module identifiers themselves stay private here.
+    _ = relation;
+    _ = variable;
+    _ = iteration;
+    _ = join;
+    _ = extend;
+    _ = index_mod;
+    _ = aggregate_mod;
 }

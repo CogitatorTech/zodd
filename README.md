@@ -132,46 +132,39 @@ pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = zodd.ExecutionContext.init(allocator);
-    defer ctx.deinit();
 
     const Edge = struct { u32, u32 };
 
-    // Create base relation: edges in a graph
-    var edges = try zodd.Relation(Edge).fromSlice(&ctx, &[_]Edge{
+    // Base relation: edges in a graph
+    var edges = try zodd.Relation(Edge).fromSlice(allocator, &[_]Edge{
         .{ 1, 2 },
         .{ 2, 3 },
         .{ 3, 4 },
     });
     defer edges.deinit();
 
-    // Create variable for reachability (transitive closure)
-    var reachable = zodd.Variable(Edge).init(&ctx);
+    // Variable holding the reachability closure
+    var reachable = zodd.Variable(Edge).init(allocator);
     defer reachable.deinit();
+    try reachable.insertSlice(edges.elements);
 
-    // Initialize with base edges
-    try reachable.insertSlice(&ctx, edges.elements);
-
-    // Fixed-point iteration: reachable(X,Z) :- reachable(X,Y), edge(Y,Z)
+    // Fixed-point iteration: reachable(X, Z) :- reachable(X, Y), edge(Y, Z)
     while (try reachable.changed()) {
-        var new_tuples: std.ArrayList(Edge) = .empty;
-        defer new_tuples.deinit(allocator);
+        var batch: std.ArrayList(Edge) = .empty;
+        defer batch.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
             for (edges.elements) |e| {
-                if (e[0] == r[1]) {
-                    try new_tuples.append(allocator, .{ r[0], e[1] });
-                }
+                if (e[0] == r[1]) try batch.append(allocator, .{ r[0], e[1] });
             }
         }
 
-        if (new_tuples.items.len > 0) {
-            const rel = try zodd.Relation(Edge).fromSlice(&ctx, new_tuples.items);
+        if (batch.items.len > 0) {
+            const rel = try zodd.Relation(Edge).fromSlice(allocator, batch.items);
             try reachable.insert(rel);
         }
     }
 
-    // Get final result
     var result = try reachable.complete();
     defer result.deinit();
 

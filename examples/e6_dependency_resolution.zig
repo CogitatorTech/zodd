@@ -20,7 +20,6 @@ pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var ctx = zodd.ExecutionContext.init(allocator);
 
     std.debug.print("Zodd Datalog Engine - Dependency Resolution Example\n", .{});
     std.debug.print("===================================================\n\n", .{});
@@ -96,17 +95,17 @@ pub fn main() !void {
 
     // -- Build relations --
 
-    var direct_deps = try zodd.Relation(Pair).fromSlice(&ctx, &direct_dep_data);
+    var direct_deps = try zodd.Relation(Pair).fromSlice(allocator, &direct_dep_data);
     defer direct_deps.deinit();
 
     // -- Step 1: Compute transitive dependencies --
     //   dep(A, B) :- direct_dep(A, B).
     //   dep(A, C) :- dep(A, B), direct_dep(B, C).
 
-    var dep = zodd.Variable(Pair).init(&ctx);
+    var dep = zodd.Variable(Pair).init(allocator);
     defer dep.deinit();
 
-    try dep.insertSlice(&ctx, direct_deps.elements);
+    try dep.insertSlice(direct_deps.elements);
 
     std.debug.print("\nComputing transitive dependencies...\n", .{});
 
@@ -129,7 +128,7 @@ pub fn main() !void {
         }
 
         if (results.items.len > 0) {
-            const rel = try zodd.Relation(Pair).fromSlice(&ctx, results.items);
+            const rel = try zodd.Relation(Pair).fromSlice(allocator, results.items);
             try dep.insert(rel);
         }
 
@@ -166,7 +165,7 @@ pub fn main() !void {
     // For each package, sum the sizes of all its transitive dependencies plus itself.
     // We build a relation of (package, dep_size) pairs and aggregate by summing.
 
-    var pkg_sizes = try zodd.Relation(SizeTuple).fromSlice(&ctx, &size_data);
+    var pkg_sizes = try zodd.Relation(SizeTuple).fromSlice(allocator, &size_data);
     defer pkg_sizes.deinit();
 
     // Build (package, dep_size) pairs: for each dep(A, B), look up size of B.
@@ -188,15 +187,15 @@ pub fn main() !void {
         }
     }
 
-    var install_rel = try zodd.Relation(Pair).fromSlice(&ctx, install_tuples.items);
+    var install_rel = try zodd.Relation(Pair).fromSlice(allocator, install_tuples.items);
     defer install_rel.deinit();
 
     // Aggregate: sum sizes per package
-    var total_sizes = try zodd.aggregateFn(
+    var total_sizes = try zodd.aggregate(
         Pair,
         u32,
         u32,
-        &ctx,
+        allocator,
         &install_rel,
         struct {
             fn key(tuple: *const Pair) u32 {
@@ -222,7 +221,7 @@ pub fn main() !void {
     // Build a secondary index on the transitive deps relation, keyed by the
     // dependency (the target), so we can efficiently answer "who depends on X?"
 
-    const DepIndex = zodd.index.SecondaryIndex(
+    const DepIndex = zodd.SecondaryIndex(
         Pair,
         u32,
         struct {
@@ -238,7 +237,7 @@ pub fn main() !void {
         16,
     );
 
-    var rev_index = DepIndex.init(&ctx);
+    var rev_index = DepIndex.init(allocator);
     defer rev_index.deinit();
 
     try rev_index.insertSlice(deps.elements);

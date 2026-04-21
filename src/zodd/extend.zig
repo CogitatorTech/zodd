@@ -16,8 +16,6 @@ const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
 const Variable = @import("variable.zig").Variable;
 const gallop = @import("variable.zig").gallop;
-const ExecutionContext = @import("context.zig").ExecutionContext;
-const WaitGroup = @import("context.zig").WaitGroup;
 
 /// Creates a Leaper interface type for a Tuple and Value type.
 ///
@@ -96,11 +94,11 @@ pub fn ExtendWith(
         cached_start: usize = 0,
 
         /// Initializes a new extend-with leaper.
-        pub fn init(ctx: *ExecutionContext, relation: *const Rel, key_func: *const fn (*const Tuple) Key) Self {
+        pub fn init(allocator: Allocator, relation: *const Rel, key_func: *const fn (*const Tuple) Key) Self {
             return Self{
                 .relation = relation,
                 .key_func = key_func,
-                .allocator = ctx.allocator,
+                .allocator = allocator,
             };
         }
 
@@ -198,14 +196,14 @@ pub fn FilterAnti(
 
         /// Initializes a new filter-anti leaper.
         pub fn init(
-            ctx: *ExecutionContext,
+            allocator: Allocator,
             relation: *const Rel,
             key_func: *const fn (*const Tuple) struct { Key, Val },
         ) Self {
             return Self{
                 .relation = relation,
                 .key_func = key_func,
-                .allocator = ctx.allocator,
+                .allocator = allocator,
             };
         }
 
@@ -272,11 +270,11 @@ pub fn ExtendAnti(
         allocator: Allocator,
 
         /// Initializes a new extend-anti leaper.
-        pub fn init(ctx: *ExecutionContext, relation: *const Rel, key_func: *const fn (*const Tuple) Key) Self {
+        pub fn init(allocator: Allocator, relation: *const Rel, key_func: *const fn (*const Tuple) Key) Self {
             return Self{
                 .relation = relation,
                 .key_func = key_func,
-                .allocator = ctx.allocator,
+                .allocator = allocator,
             };
         }
 
@@ -342,11 +340,15 @@ pub fn ExtendAnti(
 }
 
 /// Extends a variable into another variable using leapers.
+///
+/// For each tuple in `source.recent`, picks the leaper with the smallest
+/// candidate count, proposes values, intersects against the others, and
+/// feeds each surviving value through `logic` to produce a `Result`. The
+/// batch of results is appended to `output` via `output.insert`.
 pub fn extendInto(
     comptime Tuple: type,
     comptime Val: type,
     comptime Result: type,
-    ctx: *ExecutionContext,
     source: *Variable(Tuple),
     leapers: []Leaper(Tuple, Val),
     output: *Variable(Result),
@@ -363,175 +365,45 @@ pub fn extendInto(
 
     var had_error = false;
 
-    if (ctx.pool != null and source.recent.elements.len > 0 and leapers.len > 0) {
-        const chunk: usize = 128;
-        const task_count = (source.recent.elements.len + chunk - 1) / chunk;
+    for (source.recent.elements) |*tuple| {
+        const sentinel = std.math.maxInt(usize);
+        var min_index: usize = sentinel;
+        var min_count: usize = sentinel;
 
-        const Task = struct {
-            slice: []const Tuple,
-            base_leapers: []Leaper(Tuple, Val),
-            leapers: []Leaper(Tuple, Val) = &[_]Leaper(Tuple, Val){},
-            results: std.ArrayListUnmanaged(Result) = .empty,
-            had_error: bool = false,
-            logic_fn: *const fn (*const Tuple, *const Val) Result,
-
-            fn run(task: *@This()) void {
-                var local_values = std.ArrayListUnmanaged(*const Val).empty;
-                defer local_values.deinit(task.base_leapers[0].allocator);
-
-                for (task.slice) |*tuple| {
-                    const sentinel = std.math.maxInt(usize);
-                    var min_index: usize = sentinel;
-                    var min_count: usize = sentinel;
-
-                    for (task.leapers, 0..) |leaper, i| {
-                        const cnt = leaper.count(tuple);
-                        if (cnt < min_count) {
-                            min_count = cnt;
-                            min_index = i;
-                        }
-                    }
-
-                    if (min_index == sentinel or min_count == 0 or min_count == sentinel) continue;
-
-                    local_values.clearRetainingCapacity();
-                    var min_leaper = &task.leapers[min_index];
-                    min_leaper.had_error = false;
-                    min_leaper.propose(tuple, &local_values);
-
-                    if (min_leaper.had_error) {
-                        task.had_error = true;
-                        break;
-                    }
-
-                    for (task.leapers, 0..) |leaper, i| {
-                        if (i != min_index) {
-                            leaper.intersect(tuple, &local_values);
-                        }
-                    }
-
-                    for (local_values.items) |val| {
-                        task.results.append(min_leaper.allocator, task.logic_fn(tuple, val)) catch {
-                            task.had_error = true;
-                            break;
-                        };
-                    }
-
-                    if (task.had_error) break;
-                }
+        for (leapers, 0..) |leaper, i| {
+            const cnt = leaper.count(tuple);
+            if (cnt < min_count) {
+                min_count = cnt;
+                min_index = i;
             }
-        };
+        }
 
-        const tasks = try ctx.allocator.alloc(Task, task_count);
-        defer ctx.allocator.free(tasks);
+        if (min_index == sentinel or min_count == 0 or min_count == sentinel) continue;
 
-        var t: usize = 0;
-        while (t < task_count) : (t += 1) {
-            const start = t * chunk;
-            const end = @min(start + chunk, source.recent.elements.len);
-            tasks[t] = .{
-                .slice = source.recent.elements[start..end],
-                .base_leapers = leapers,
-                .logic_fn = logic,
+        values.clearRetainingCapacity();
+        var min_leaper = &leapers[min_index];
+        min_leaper.had_error = false;
+        min_leaper.propose(tuple, &values);
+
+        if (min_leaper.had_error) {
+            had_error = true;
+            break;
+        }
+
+        for (leapers, 0..) |leaper, i| {
+            if (i != min_index) {
+                leaper.intersect(tuple, &values);
+            }
+        }
+
+        for (values.items) |val| {
+            results.append(output.allocator, logic(tuple, val)) catch {
+                had_error = true;
+                break;
             };
         }
 
-        // Tracks how many entries of `tasks` have `leapers` populated. On an
-        // error partway through the clone loop, the `errdefer` below walks
-        // back over already-populated tasks and frees their leapers.
-        var populated: usize = 0;
-        errdefer {
-            for (tasks[0..populated]) |*task| {
-                for (task.leapers) |*leaper| {
-                    leaper.deinit();
-                }
-                ctx.allocator.free(task.leapers);
-            }
-        }
-
-        var t_idx: usize = 0;
-        while (t_idx < task_count) : (t_idx += 1) {
-            const task = &tasks[t_idx];
-            const clones = try ctx.allocator.alloc(Leaper(Tuple, Val), leapers.len);
-            var cloned: usize = 0;
-            errdefer {
-                for (clones[0..cloned]) |*leaper| {
-                    leaper.deinit();
-                }
-                ctx.allocator.free(clones);
-            }
-            var i: usize = 0;
-            while (i < leapers.len) : (i += 1) {
-                clones[i] = try leapers[i].clone(ctx.allocator);
-                cloned += 1;
-            }
-            task.leapers = clones;
-            populated = t_idx + 1;
-        }
-
-        if (ctx.pool) |*pool| {
-            var wg: WaitGroup = .{};
-            for (tasks) |*task| {
-                pool.*.spawnWg(&wg, Task.run, .{task});
-            }
-            wg.wait();
-        }
-
-        for (tasks) |*task| {
-            for (task.leapers) |*leaper| {
-                leaper.deinit();
-            }
-            ctx.allocator.free(task.leapers);
-
-            defer task.results.deinit(output.allocator);
-            if (task.had_error) {
-                return error.OutOfMemory;
-            }
-            if (task.results.items.len > 0) {
-                try results.appendSlice(output.allocator, task.results.items);
-            }
-        }
-    } else {
-        for (source.recent.elements) |*tuple| {
-            const sentinel = std.math.maxInt(usize);
-            var min_index: usize = sentinel;
-            var min_count: usize = sentinel;
-
-            for (leapers, 0..) |leaper, i| {
-                const cnt = leaper.count(tuple);
-                if (cnt < min_count) {
-                    min_count = cnt;
-                    min_index = i;
-                }
-            }
-
-            if (min_index == sentinel or min_count == 0 or min_count == sentinel) continue;
-
-            values.clearRetainingCapacity();
-            var min_leaper = &leapers[min_index];
-            min_leaper.had_error = false;
-            min_leaper.propose(tuple, &values);
-
-            if (min_leaper.had_error) {
-                had_error = true;
-                break;
-            }
-
-            for (leapers, 0..) |leaper, i| {
-                if (i != min_index) {
-                    leaper.intersect(tuple, &values);
-                }
-            }
-
-            for (values.items) |val| {
-                results.append(output.allocator, logic(tuple, val)) catch {
-                    had_error = true;
-                    break;
-                };
-            }
-
-            if (had_error) break;
-        }
+        if (had_error) break;
     }
 
     if (had_error) {
@@ -539,7 +411,7 @@ pub fn extendInto(
     }
 
     if (results.items.len > 0) {
-        const rel = try Relation(Result).fromSlice(ctx, results.items);
+        const rel = try Relation(Result).fromSlice(output.allocator, results.items);
         try output.insert(rel);
     }
 }
@@ -631,17 +503,16 @@ fn gallopValHelper(comptime Key: type, comptime Val: type, slice: []const struct
 
 test "ExtendWith: basic" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const KV = struct { u32, u32 };
 
-    var rel = try Relation(KV).fromSlice(&ctx, &[_]KV{
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{
         .{ 1, 10 },
         .{ 1, 11 },
         .{ 2, 20 },
     });
     defer rel.deinit();
 
-    var ext = ExtendWith(u32, u32, u32).init(&ctx, &rel, struct {
+    var ext = ExtendWith(u32, u32, u32).init(allocator, &rel, struct {
         fn f(t: *const u32) u32 {
             return t.*;
         }
@@ -654,17 +525,16 @@ test "ExtendWith: basic" {
 
 test "FilterAnti: filters matching tuples" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const KV = struct { u32, u32 };
     const Tuple = struct { u32, u32 };
 
-    var rel = try Relation(KV).fromSlice(&ctx, &[_]KV{
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{
         .{ 1, 10 },
         .{ 2, 20 },
     });
     defer rel.deinit();
 
-    var filter = FilterAnti(Tuple, u32, u32).init(&ctx, &rel, struct {
+    var filter = FilterAnti(Tuple, u32, u32).init(allocator, &rel, struct {
         fn f(t: *const Tuple) KV {
             return .{ t[0], t[1] };
         }
@@ -679,17 +549,16 @@ test "FilterAnti: filters matching tuples" {
 
 test "ExtendAnti: proposes absent values" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const KV = struct { u32, u32 }; // Key, Val
 
     // Relation contains {(1, 10), (1, 20)}
-    var rel = try Relation(KV).fromSlice(&ctx, &[_]KV{
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{
         .{ 1, 10 },
         .{ 1, 20 },
     });
     defer rel.deinit();
 
-    var ext = ExtendAnti(u32, u32, u32).init(&ctx, &rel, struct {
+    var ext = ExtendAnti(u32, u32, u32).init(allocator, &rel, struct {
         fn f(t: *const u32) u32 {
             return t.*;
         }
@@ -720,20 +589,19 @@ test "ExtendAnti: proposes absent values" {
 
 test "extendInto: leapfrog join" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32 };
     const Val = u32; // We are extending Tuple(u32) with a new u32 value
 
     // Pattern: R(x, y) :- A(x), B(x, y), C(x, y)
     // A provides x. B and C constrain y.
 
-    var A = Variable(Tuple).init(&ctx);
+    var A = Variable(Tuple).init(allocator);
     defer A.deinit();
-    try A.insertSlice(&ctx, &[_]Tuple{.{1}}); // x=1
+    try A.insertSlice(&[_]Tuple{.{1}}); // x=1
     _ = try A.changed();
 
     // B = {(1, 10), (1, 20), (1, 30)}
-    var R_B = try Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+    var R_B = try Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
         .{ 1, 10 },
         .{ 1, 20 },
         .{ 1, 30 },
@@ -741,24 +609,24 @@ test "extendInto: leapfrog join" {
     defer R_B.deinit();
 
     // C = {(1, 20), (1, 30), (1, 40)}
-    var R_C = try Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+    var R_C = try Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
         .{ 1, 20 },
         .{ 1, 30 },
         .{ 1, 40 },
     });
     defer R_C.deinit();
 
-    var output = Variable(struct { u32, u32 }).init(&ctx);
+    var output = Variable(struct { u32, u32 }).init(allocator);
     defer output.deinit();
 
     // Leapers for B and C
-    var extB = ExtendWith(Tuple, u32, Val).init(&ctx, &R_B, struct {
+    var extB = ExtendWith(Tuple, u32, Val).init(allocator, &R_B, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
     }.f);
 
-    var extC = ExtendWith(Tuple, u32, Val).init(&ctx, &R_C, struct {
+    var extC = ExtendWith(Tuple, u32, Val).init(allocator, &R_C, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -766,7 +634,7 @@ test "extendInto: leapfrog join" {
 
     var leapers = [_]Leaper(Tuple, Val){ extB.leaper(), extC.leaper() };
 
-    try extendInto(Tuple, Val, struct { u32, u32 }, &ctx, &A, &leapers, &output, struct {
+    try extendInto(Tuple, Val, struct { u32, u32 }, &A, &leapers, &output, struct {
         fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
             return .{ t[0], v.* };
         }
@@ -782,24 +650,23 @@ test "extendInto: leapfrog join" {
 
 test "extendInto: only anti leapers is harmless" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32 };
     const Val = u32;
 
-    var source = Variable(Tuple).init(&ctx);
+    var source = Variable(Tuple).init(allocator);
     defer source.deinit();
 
-    try source.insertSlice(&ctx, &[_]Tuple{.{1}});
+    try source.insertSlice(&[_]Tuple{.{1}});
     _ = try source.changed();
 
     const KV = struct { u32, u32 };
-    var rel = try Relation(KV).fromSlice(&ctx, &[_]KV{});
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{});
     defer rel.deinit();
 
-    var output = Variable(struct { u32, u32 }).init(&ctx);
+    var output = Variable(struct { u32, u32 }).init(allocator);
     defer output.deinit();
 
-    var ext = ExtendAnti(Tuple, u32, Val).init(&ctx, &rel, struct {
+    var ext = ExtendAnti(Tuple, u32, Val).init(allocator, &rel, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -807,7 +674,7 @@ test "extendInto: only anti leapers is harmless" {
 
     var leapers = [_]Leaper(Tuple, Val){ext.leaper()};
 
-    try extendInto(Tuple, Val, struct { u32, u32 }, &ctx, &source, leapers[0..], &output, struct {
+    try extendInto(Tuple, Val, struct { u32, u32 }, &source, leapers[0..], &output, struct {
         fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
             return .{ t[0], v.* };
         }
@@ -820,16 +687,15 @@ test "extendInto: only anti leapers is harmless" {
 
 test "ExtendWith: count zero does not propose values" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const KV = struct { u32, u32 };
     const Tuple = u32;
 
-    var rel = try Relation(KV).fromSlice(&ctx, &[_]KV{
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{
         .{ 2, 20 },
     });
     defer rel.deinit();
 
-    var ext = ExtendWith(Tuple, u32, u32).init(&ctx, &rel, struct {
+    var ext = ExtendWith(Tuple, u32, u32).init(allocator, &rel, struct {
         fn f(t: *const Tuple) u32 {
             return t.*;
         }
@@ -848,20 +714,19 @@ test "ExtendWith: count zero does not propose values" {
 
 test "FilterAnti and ExtendAnti: empty relation" {
     const allocator = std.testing.allocator;
-    var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32 };
     const KV = struct { u32, u32 };
 
-    var rel = try Relation(KV).fromSlice(&ctx, &[_]KV{});
+    var rel = try Relation(KV).fromSlice(allocator, &[_]KV{});
     defer rel.deinit();
 
-    var filter = FilterAnti(Tuple, u32, u32).init(&ctx, &rel, struct {
+    var filter = FilterAnti(Tuple, u32, u32).init(allocator, &rel, struct {
         fn f(t: *const Tuple) KV {
             return .{ t[0], 0 };
         }
     }.f);
 
-    var ext = ExtendAnti(Tuple, u32, u32).init(&ctx, &rel, struct {
+    var ext = ExtendAnti(Tuple, u32, u32).init(allocator, &rel, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -881,42 +746,40 @@ test "FilterAnti and ExtendAnti: empty relation" {
     try std.testing.expectEqual(@as(usize, 2), values.items.len);
 }
 
-test "extendInto: parallel" {
+test "extendInto: two leapers intersect to the common values" {
     const allocator = std.testing.allocator;
-    var ctx = try ExecutionContext.initWithThreads(allocator, 2);
-    defer ctx.deinit();
     const Tuple = struct { u32 };
     const Val = u32;
 
-    var A = Variable(Tuple).init(&ctx);
+    var A = Variable(Tuple).init(allocator);
     defer A.deinit();
-    try A.insertSlice(&ctx, &[_]Tuple{.{1}});
+    try A.insertSlice(&[_]Tuple{.{1}});
     _ = try A.changed();
 
-    var R_B = try Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+    var R_B = try Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
         .{ 1, 10 },
         .{ 1, 20 },
         .{ 1, 30 },
     });
     defer R_B.deinit();
 
-    var R_C = try Relation(struct { u32, u32 }).fromSlice(&ctx, &[_]struct { u32, u32 }{
+    var R_C = try Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
         .{ 1, 20 },
         .{ 1, 30 },
         .{ 1, 40 },
     });
     defer R_C.deinit();
 
-    var output = Variable(struct { u32, u32 }).init(&ctx);
+    var output = Variable(struct { u32, u32 }).init(allocator);
     defer output.deinit();
 
-    var extB = ExtendWith(Tuple, u32, Val).init(&ctx, &R_B, struct {
+    var extB = ExtendWith(Tuple, u32, Val).init(allocator, &R_B, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
     }.f);
 
-    var extC = ExtendWith(Tuple, u32, Val).init(&ctx, &R_C, struct {
+    var extC = ExtendWith(Tuple, u32, Val).init(allocator, &R_C, struct {
         fn f(t: *const Tuple) u32 {
             return t[0];
         }
@@ -924,7 +787,7 @@ test "extendInto: parallel" {
 
     var leapers = [_]Leaper(Tuple, Val){ extB.leaper(), extC.leaper() };
 
-    try extendInto(Tuple, Val, struct { u32, u32 }, &ctx, &A, &leapers, &output, struct {
+    try extendInto(Tuple, Val, struct { u32, u32 }, &A, &leapers, &output, struct {
         fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
             return .{ t[0], v.* };
         }
@@ -934,104 +797,6 @@ test "extendInto: parallel" {
     try std.testing.expectEqual(@as(usize, 2), output.recent.len());
     try std.testing.expectEqual(output.recent.elements[0][1], 20);
     try std.testing.expectEqual(output.recent.elements[1][1], 30);
-}
-
-test "extendInto: clone failure cleans up" {
-    const allocator = std.testing.allocator;
-    var ctx = try ExecutionContext.initWithThreads(allocator, 2);
-    defer ctx.deinit();
-
-    const Tuple = struct { u32 };
-    const Val = u32;
-
-    var source = Variable(Tuple).init(&ctx);
-    defer source.deinit();
-
-    try source.insertSlice(&ctx, &[_]Tuple{.{1}});
-    _ = try source.changed();
-
-    const Counter = struct {
-        clones: usize = 0,
-        destroys: usize = 0,
-        fail_after: usize = 0,
-    };
-
-    const State = struct {
-        counter: *Counter,
-        value: Val,
-    };
-
-    const VTable = Leaper(Tuple, Val).VTable;
-
-    const Impl = struct {
-        fn count(ptr: *anyopaque, _: *const Tuple) usize {
-            _ = ptr;
-            return 1;
-        }
-
-        fn propose(ptr: *anyopaque, _: *const Tuple, alloc: Allocator, values: *std.ArrayListUnmanaged(*const Val), had_error: *bool) void {
-            const state: *State = @ptrCast(@alignCast(ptr));
-            values.append(alloc, &state.value) catch {
-                had_error.* = true;
-                return;
-            };
-        }
-
-        fn intersect(_: *anyopaque, _: *const Tuple, _: *std.ArrayListUnmanaged(*const Val)) void {}
-
-        fn clone(ptr: *anyopaque, alloc: Allocator) Allocator.Error!*anyopaque {
-            const state: *State = @ptrCast(@alignCast(ptr));
-            if (state.counter.clones >= state.counter.fail_after) return error.OutOfMemory;
-            const new_state = try alloc.create(State);
-            new_state.* = .{ .counter = state.counter, .value = state.value };
-            state.counter.clones += 1;
-            return @ptrCast(new_state);
-        }
-
-        fn destroy(ptr: *anyopaque, alloc: Allocator) void {
-            const state: *State = @ptrCast(@alignCast(ptr));
-            state.counter.destroys += 1;
-            alloc.destroy(state);
-        }
-    };
-
-    var counter = Counter{ .fail_after = 1 };
-
-    const makeLeaper = struct {
-        fn make(alloc: Allocator, counter_ptr: *Counter, value: Val) !Leaper(Tuple, Val) {
-            const state = try alloc.create(State);
-            state.* = .{ .counter = counter_ptr, .value = value };
-            return .{
-                .ptr = @ptrCast(state),
-                .allocator = alloc,
-                .vtable = &VTable{
-                    .count = Impl.count,
-                    .propose = Impl.propose,
-                    .intersect = Impl.intersect,
-                    .clone = Impl.clone,
-                    .destroy = Impl.destroy,
-                },
-            };
-        }
-    };
-
-    var leaper1 = try makeLeaper.make(allocator, &counter, 10);
-    defer leaper1.deinit();
-    var leaper2 = try makeLeaper.make(allocator, &counter, 20);
-    defer leaper2.deinit();
-
-    var leapers = [_]Leaper(Tuple, Val){ leaper1, leaper2 };
-
-    var output = Variable(struct { u32, u32 }).init(&ctx);
-    defer output.deinit();
-
-    try std.testing.expectError(error.OutOfMemory, extendInto(Tuple, Val, struct { u32, u32 }, &ctx, &source, leapers[0..], &output, struct {
-        fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
-            return .{ t[0], v.* };
-        }
-    }.logic));
-
-    try std.testing.expectEqual(counter.clones, counter.destroys);
 }
 
 test "Leaper clone uses clone allocator" {
@@ -1083,13 +848,13 @@ test "Leaper clone uses clone allocator" {
     var base_count = CountingAlloc{ .backing = allocator };
     var clone_count = CountingAlloc{ .backing = allocator };
 
-    var ctx = ExecutionContext.init(base_count.wrap());
+    const base_alloc = base_count.wrap();
     const KV = struct { u32, u32 };
 
-    var rel = try Relation(KV).fromSlice(&ctx, &[_]KV{.{ 1, 10 }});
+    var rel = try Relation(KV).fromSlice(base_alloc, &[_]KV{.{ 1, 10 }});
     defer rel.deinit();
 
-    var ext = ExtendWith(u32, u32, u32).init(&ctx, &rel, struct {
+    var ext = ExtendWith(u32, u32, u32).init(base_alloc, &rel, struct {
         fn f(t: *const u32) u32 {
             return t.*;
         }
