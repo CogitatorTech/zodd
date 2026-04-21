@@ -40,13 +40,19 @@ pub fn SecondaryIndex(
 
         /// Deinitializes the index.
         pub fn deinit(self: *Self) void {
-            var iter = self.map.iterator() catch return;
-            defer iter.deinit();
-            while (iter.next() catch null) |entry| {
-                var mut_rel = entry.value;
-                mut_rel.deinit();
-            }
-            self.map.deinit();
+            // Always free the map itself, even if we can't walk it. Walking
+            // the map requires an allocation for the traversal stack, so an
+            // OOM during deinit could leak the nested Relations, but we must
+            // not let that also leak the B-tree structure.
+            defer self.map.deinit();
+            if (self.map.iterator()) |it| {
+                var iter = it;
+                defer iter.deinit();
+                while (iter.next() catch null) |entry| {
+                    var mut_rel = entry.value;
+                    mut_rel.deinit();
+                }
+            } else |_| {}
         }
 
         /// Inserts a tuple into the index.
@@ -77,7 +83,9 @@ pub fn SecondaryIndex(
             return self.map.get(key);
         }
 
-        /// Returns a relation covering the range [start_key, end_key).
+        /// Returns a relation covering the closed range [start_key, end_key].
+        /// Both endpoints are inclusive: entries with `key == end_key` are
+        /// returned.
         pub fn getRange(self: *Self, start_key: Key, end_key: Key) !Relation(Tuple) {
             var iter = try self.map.iterator();
             defer iter.deinit();
@@ -160,4 +168,37 @@ test "SecondaryIndex: getRange empty and inverted" {
     var inverted = try idx.getRange(5, 4);
     defer inverted.deinit();
     try std.testing.expectEqual(@as(usize, 0), inverted.len());
+}
+
+test "SecondaryIndex: getRange end is inclusive" {
+    // Locks in the closed-interval [start, end] contract documented on
+    // getRange. A regression here would be a silent behavior change.
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    const Index = SecondaryIndex(Tuple, u32, struct {
+        fn extract(t: Tuple) u32 {
+            return t[0];
+        }
+    }.extract, u32Compare, 4);
+
+    var idx = Index.init(&ctx);
+    defer idx.deinit();
+
+    try idx.insert(.{ 1, 10 });
+    try idx.insert(.{ 2, 20 });
+    try idx.insert(.{ 3, 30 });
+    try idx.insert(.{ 4, 40 });
+
+    // end_key == 3 must include the entry at key 3.
+    var inclusive = try idx.getRange(2, 3);
+    defer inclusive.deinit();
+    try std.testing.expectEqual(@as(usize, 2), inclusive.len());
+
+    // start == end picks out exactly one key.
+    var point = try idx.getRange(3, 3);
+    defer point.deinit();
+    try std.testing.expectEqual(@as(usize, 1), point.len());
+    try std.testing.expectEqual(@as(u32, 3), point.elements[0][0]);
 }

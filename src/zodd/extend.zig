@@ -436,6 +436,19 @@ pub fn extendInto(
             };
         }
 
+        // Tracks how many entries of `tasks` have `leapers` populated. On an
+        // error partway through the clone loop, the `errdefer` below walks
+        // back over already-populated tasks and frees their leapers.
+        var populated: usize = 0;
+        errdefer {
+            for (tasks[0..populated]) |*task| {
+                for (task.leapers) |*leaper| {
+                    leaper.deinit();
+                }
+                ctx.allocator.free(task.leapers);
+            }
+        }
+
         var t_idx: usize = 0;
         while (t_idx < task_count) : (t_idx += 1) {
             const task = &tasks[t_idx];
@@ -453,6 +466,7 @@ pub fn extendInto(
                 cloned += 1;
             }
             task.leapers = clones;
+            populated = t_idx + 1;
         }
 
         if (ctx.pool) |*pool| {

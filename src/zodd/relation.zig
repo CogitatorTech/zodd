@@ -28,6 +28,23 @@ const Allocator = mem.Allocator;
 const ExecutionContext = @import("context.zig").ExecutionContext;
 const WaitGroup = @import("context.zig").WaitGroup;
 
+/// Shrinks `slice` in place to `new_len`, or allocates a fresh smaller buffer
+/// and copies into it. On success the returned slice's length equals its
+/// allocation size, so `allocator.free` on it is safe. On error the input
+/// slice is untouched and remains owned by the caller; wrap the caller in an
+/// `errdefer` that frees the original allocation.
+pub fn shrinkOrCopy(comptime T: type, allocator: Allocator, slice: []T, new_len: usize) Allocator.Error![]T {
+    std.debug.assert(new_len <= slice.len);
+    if (new_len == slice.len) return slice;
+    if (allocator.realloc(slice, new_len)) |new_slice| {
+        return new_slice;
+    } else |_| {}
+    const new_buf = try allocator.alloc(T, new_len);
+    @memcpy(new_buf, slice[0..new_len]);
+    allocator.free(slice);
+    return new_buf;
+}
+
 pub fn Relation(comptime Tuple: type) type {
     return struct {
         const Self = @This();
@@ -60,6 +77,7 @@ pub fn Relation(comptime Tuple: type) type {
             }
 
             const elements = try ctx.allocator.alloc(Tuple, input.len);
+            errdefer ctx.allocator.free(elements);
             if (ctx.pool) |pool| {
                 const chunk: usize = 1024;
                 const task_count = (input.len + chunk - 1) / chunk;
@@ -130,7 +148,7 @@ pub fn Relation(comptime Tuple: type) type {
             const unique_len = deduplicate(elements);
 
             if (unique_len < elements.len) {
-                const shrunk = ctx.allocator.realloc(elements, unique_len) catch elements[0..unique_len];
+                const shrunk = try shrinkOrCopy(Tuple, ctx.allocator, elements, unique_len);
                 return Self{
                     .elements = shrunk,
                     .allocator = ctx.allocator,
@@ -236,7 +254,7 @@ pub fn Relation(comptime Tuple: type) type {
             other.deinit();
 
             if (k < merged.len) {
-                const shrunk = self.allocator.realloc(merged, k) catch merged[0..k];
+                const shrunk = try shrinkOrCopy(Tuple, self.allocator, merged, k);
                 return Self{
                     .elements = shrunk,
                     .allocator = self.allocator,
@@ -427,7 +445,7 @@ pub fn Relation(comptime Tuple: type) type {
             const unique_len = deduplicate(elements);
 
             if (unique_len < elements.len) {
-                const shrunk = ctx.allocator.realloc(elements, unique_len) catch elements[0..unique_len];
+                const shrunk = try shrinkOrCopy(Tuple, ctx.allocator, elements, unique_len);
                 return Self{
                     .elements = shrunk,
                     .allocator = ctx.allocator,

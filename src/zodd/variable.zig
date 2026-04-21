@@ -25,6 +25,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
+const shrinkOrCopy = @import("relation.zig").shrinkOrCopy;
 const ExecutionContext = @import("context.zig").ExecutionContext;
 
 pub fn Variable(comptime Tuple: type) type {
@@ -90,11 +91,16 @@ pub fn Variable(comptime Tuple: type) type {
             if (!self.recent.isEmpty()) {
                 var recent = self.recent;
                 self.recent = Rel.empty(self.ctx);
+                // `recent` now owns the tuples. If anything below fails we
+                // must free them; on success we transfer ownership to
+                // `self.stable` and null out `recent`.
+                errdefer recent.deinit();
 
                 while (self.stable.items.len > 0) {
                     const last = &self.stable.items[self.stable.items.len - 1];
                     if (last.len() <= 2 * recent.len()) {
                         var popped = self.stable.pop() orelse break;
+                        errdefer popped.deinit();
                         recent = try recent.merge(&popped);
                     } else {
                         break;
@@ -102,12 +108,16 @@ pub fn Variable(comptime Tuple: type) type {
                 }
 
                 try self.stable.append(self.allocator, recent);
+                recent = Rel.empty(self.ctx);
             }
 
             if (self.to_add.items.len > 0) {
                 var to_add = self.to_add.pop().?;
+                errdefer to_add.deinit();
+
                 while (self.to_add.items.len > 0) {
                     var more = self.to_add.pop().?;
+                    errdefer more.deinit();
                     to_add = try to_add.merge(&more);
                 }
 
@@ -116,6 +126,7 @@ pub fn Variable(comptime Tuple: type) type {
                 }
 
                 self.recent = to_add;
+                to_add = Rel.empty(self.ctx);
             }
 
             return !self.recent.isEmpty();
@@ -144,10 +155,7 @@ pub fn Variable(comptime Tuple: type) type {
                     target.deinit();
                     target.* = Rel.empty(self.ctx);
                 } else {
-                    target.elements = self.allocator.realloc(
-                        target.elements,
-                        write_idx,
-                    ) catch target.elements[0..write_idx];
+                    target.elements = try shrinkOrCopy(Tuple, self.allocator, target.elements, write_idx);
                 }
             }
         }
@@ -173,11 +181,15 @@ pub fn Variable(comptime Tuple: type) type {
 
             if (self.to_add.items.len > 0) {
                 var to_add = self.to_add.pop().?;
+                errdefer to_add.deinit();
+
                 while (self.to_add.items.len > 0) {
                     var more = self.to_add.pop().?;
+                    errdefer more.deinit();
                     to_add = try to_add.merge(&more);
                 }
                 try self.stable.append(self.allocator, to_add);
+                to_add = Rel.empty(self.ctx);
             }
 
             if (self.stable.items.len == 0) {
@@ -185,8 +197,11 @@ pub fn Variable(comptime Tuple: type) type {
             }
 
             var result = self.stable.pop().?;
+            errdefer result.deinit();
+
             while (self.stable.items.len > 0) {
                 var batch = self.stable.pop().?;
+                errdefer batch.deinit();
                 result = try result.merge(&batch);
             }
 
@@ -214,7 +229,11 @@ pub fn gallop(comptime T: type, slice: []const T, target: T) []const T {
         step = new_step;
     }
 
-    const end = @min(pos + step + 1, slice.len);
+    // Saturating arithmetic: `step` may be maxInt(usize) after the doubling
+    // loop saturated, in which case `pos + step + 1` would overflow.
+    const end_of_step = std.math.add(usize, pos, step) catch std.math.maxInt(usize);
+    const upper = std.math.add(usize, end_of_step, 1) catch std.math.maxInt(usize);
+    const end = @min(upper, slice.len);
     var lo = pos + 1;
     var hi = end;
 
@@ -326,6 +345,27 @@ test "gallop: basic" {
 
     const result3 = gallop(u32, &slice, 20);
     try std.testing.expectEqual(@as(usize, 0), result3.len);
+}
+
+test "gallop: target at the last element" {
+    // Locks in the edge case where the galloping step lands on the final
+    // index, which is where the `pos + step + 1` overflow path was reachable
+    // in principle. The saturating-add fix keeps this correct.
+    const slice = [_]u32{ 1, 2, 4, 8, 16, 32, 64, 128 };
+    const result = gallop(u32, &slice, 128);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqual(@as(u32, 128), result[0]);
+}
+
+test "gallop: target beyond saturated step" {
+    // With 1024 elements the step doubles to 1024 before termination; the
+    // boundary arithmetic must not overflow. Regression coverage for the
+    // saturating `end` computation in `gallop`.
+    var slice: [1024]u32 = undefined;
+    for (&slice, 0..) |*x, i| x.* = @intCast(i * 2);
+    const result = gallop(u32, &slice, 2045);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqual(@as(u32, 2046), result[0]);
 }
 
 test "Variable: changed filters against stable batches" {
