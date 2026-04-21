@@ -665,3 +665,141 @@ test "Relation: save/load unsupported type" {
     var reader_fbs = std.Io.Reader.fixed(header[0..used]);
     try std.testing.expectError(error.UnsupportedType, Relation(Bad).load(&ctx, &reader_fbs));
 }
+
+test "shrinkOrCopy: no-op when new_len equals current length" {
+    const allocator = std.testing.allocator;
+    const buf = try allocator.alloc(u32, 5);
+    defer allocator.free(buf);
+    for (buf, 0..) |*slot, i| slot.* = @intCast(i);
+
+    const result = try shrinkOrCopy(u32, allocator, buf, buf.len);
+    try std.testing.expectEqual(buf.ptr, result.ptr);
+    try std.testing.expectEqual(buf.len, result.len);
+}
+
+test "shrinkOrCopy: in-place shrink preserves prefix" {
+    const allocator = std.testing.allocator;
+    const buf = try allocator.alloc(u32, 10);
+    for (buf, 0..) |*slot, i| slot.* = @intCast(i);
+
+    const result = try shrinkOrCopy(u32, allocator, buf, 4);
+    defer allocator.free(result);
+
+    try std.testing.expectEqual(@as(usize, 4), result.len);
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 0, 1, 2, 3 }, result);
+}
+
+test "shrinkOrCopy: copy fallback when remap is rejected" {
+    const RemapRejecting = struct {
+        child: std.mem.Allocator,
+
+        pub fn allocator(self: *@This()) std.mem.Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .remap = remap,
+                    .free = free,
+                },
+            };
+        }
+
+        fn alloc(ctx: *anyopaque, l: usize, al: std.mem.Alignment, ra: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawAlloc(l, al, ra);
+        }
+        fn resize(ctx: *anyopaque, m: []u8, al: std.mem.Alignment, nl: usize, ra: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawResize(m, al, nl, ra);
+        }
+        fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+            return null;
+        }
+        fn free(ctx: *anyopaque, m: []u8, al: std.mem.Alignment, ra: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.child.rawFree(m, al, ra);
+        }
+    };
+
+    var rr = RemapRejecting{ .child = std.testing.allocator };
+    const a = rr.allocator();
+
+    const buf = try a.alloc(u32, 8);
+    for (buf, 0..) |*slot, i| slot.* = @intCast(i * 3);
+
+    const result = try shrinkOrCopy(u32, a, buf, 3);
+    defer a.free(result);
+
+    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 0, 3, 6 }, result);
+}
+
+test "Relation: save/load round-trip for signed ints" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { i32, i32 };
+
+    var original = try Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ -7, 42 },
+        .{ -1, 0 },
+        .{ 100, -100 },
+    });
+    defer original.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try original.save(&aw.writer);
+
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(&ctx, &reader);
+    defer loaded.deinit();
+
+    try std.testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+}
+
+test "Relation: save/load round-trip for floats" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u32, f64 };
+
+    var original = try Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ 1, 3.14 },
+        .{ 2, -0.5 },
+        .{ 3, 1.0e20 },
+    });
+    defer original.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try original.save(&aw.writer);
+
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(&ctx, &reader);
+    defer loaded.deinit();
+
+    try std.testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+}
+
+test "Relation: save/load round-trip for differently-sized ints" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u8, u64 };
+
+    var original = try Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ 0, std.math.maxInt(u64) },
+        .{ 255, 0 },
+        .{ 127, 12345 },
+    });
+    defer original.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try original.save(&aw.writer);
+
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(&ctx, &reader);
+    defer loaded.deinit();
+
+    try std.testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+}

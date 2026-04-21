@@ -405,3 +405,64 @@ test "Variable: changed with recent and to_add" {
     try std.testing.expectEqual(@as(u32, 11), v.recent.elements[0]);
     try std.testing.expectEqual(@as(u32, 12), v.recent.elements[1]);
 }
+
+test "Variable: insertSlice with empty slice is a no-op" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+
+    var v = Variable(u32).init(&ctx);
+    defer v.deinit();
+
+    try v.insertSlice(&ctx, &[_]u32{});
+
+    // The empty insert lands as an empty Relation on the to_add queue; it
+    // should merely vanish through changed() without error or leaks.
+    const changed_result = try v.changed();
+    try std.testing.expect(!changed_result);
+    try std.testing.expectEqual(@as(usize, 0), v.totalLen());
+}
+
+test "Variable: changed returns false once no new facts arrive" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+
+    var v = Variable(u32).init(&ctx);
+    defer v.deinit();
+
+    try v.insertSlice(&ctx, &[_]u32{ 1, 2, 3 });
+    try std.testing.expect(try v.changed());
+    try std.testing.expect(!try v.changed());
+    try std.testing.expect(!try v.changed());
+}
+
+test "Variable: changed merges multiple to_add batches into recent" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+
+    var v = Variable(u32).init(&ctx);
+    defer v.deinit();
+
+    try v.insertSlice(&ctx, &[_]u32{ 1, 3, 5 });
+    try v.insertSlice(&ctx, &[_]u32{ 2, 4, 6 });
+    try v.insertSlice(&ctx, &[_]u32{ 5, 7 });
+
+    try std.testing.expect(try v.changed());
+    try std.testing.expectEqual(@as(usize, 7), v.recent.len());
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3, 4, 5, 6, 7 }, v.recent.elements);
+}
+
+test "Variable: complete folds to_add when nothing has been processed yet" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+
+    var v = Variable(u32).init(&ctx);
+    defer v.deinit();
+
+    try v.insertSlice(&ctx, &[_]u32{ 2, 1 });
+    try v.insertSlice(&ctx, &[_]u32{ 3, 1 });
+
+    var result = try v.complete();
+    defer result.deinit();
+
+    try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3 }, result.elements);
+}

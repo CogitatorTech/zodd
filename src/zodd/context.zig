@@ -80,3 +80,70 @@ pub const ExecutionContext = struct {
         return self.pool != null;
     }
 };
+
+test "ExecutionContext: init has no pool" {
+    var ctx = ExecutionContext.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    try std.testing.expect(!ctx.hasParallel());
+    try std.testing.expectEqual(@as(?*Pool, null), ctx.pool);
+}
+
+test "ExecutionContext: initWithThreads attaches a pool and deinit releases it" {
+    var ctx = try ExecutionContext.initWithThreads(std.testing.allocator, 2);
+    defer ctx.deinit();
+
+    try std.testing.expect(ctx.hasParallel());
+    try std.testing.expect(ctx.pool != null);
+}
+
+test "ExecutionContext: deinit is idempotent" {
+    var ctx = try ExecutionContext.initWithThreads(std.testing.allocator, 1);
+    ctx.deinit();
+    // Second deinit should be a no-op; pool was nulled out.
+    ctx.deinit();
+    try std.testing.expect(!ctx.hasParallel());
+}
+
+test "Pool: spawnWg runs the submitted function" {
+    var pool: Pool = undefined;
+    try Pool.init(&pool, .{ .allocator = std.testing.allocator, .n_jobs = 2 });
+    defer pool.deinit();
+
+    var ran: bool = false;
+    var wg: WaitGroup = .{};
+    pool.spawnWg(&wg, struct {
+        fn run(flag: *bool) void {
+            flag.* = true;
+        }
+    }.run, .{&ran});
+    wg.wait();
+
+    try std.testing.expect(ran);
+}
+
+test "Pool: spawnWg across many tasks sees every one execute" {
+    var pool: Pool = undefined;
+    try Pool.init(&pool, .{ .allocator = std.testing.allocator, .n_jobs = 4 });
+    defer pool.deinit();
+
+    var counters = [_]u32{0} ** 16;
+    var wg: WaitGroup = .{};
+    for (&counters) |*c| {
+        pool.spawnWg(&wg, struct {
+            fn run(slot: *u32) void {
+                slot.* += 1;
+            }
+        }.run, .{c});
+    }
+    wg.wait();
+
+    for (counters) |c| {
+        try std.testing.expectEqual(@as(u32, 1), c);
+    }
+}
+
+test "WaitGroup: wait on unspawned group returns immediately" {
+    var wg: WaitGroup = .{};
+    wg.wait();
+}

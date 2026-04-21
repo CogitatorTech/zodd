@@ -219,3 +219,105 @@ test "aggregate: parallel preprocess" {
     try std.testing.expectEqual(res[2].@"0", 3);
     try std.testing.expectEqual(res[2].@"1", 100);
 }
+
+test "aggregate: min per key" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    var data = try Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ 1, 30 }, .{ 1, 10 },  .{ 1, 20 },
+        .{ 2, 5 },  .{ 2, 500 },
+    });
+    defer data.deinit();
+
+    var result = try aggregate(Tuple, u32, u32, &ctx, &data, struct {
+        fn key(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.key, std.math.maxInt(u32), struct {
+        fn fold(acc: u32, t: *const Tuple) u32 {
+            return @min(acc, t[1]);
+        }
+    }.fold);
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), result.len());
+    try std.testing.expectEqual(@as(u32, 10), result.elements[0].@"1");
+    try std.testing.expectEqual(@as(u32, 5), result.elements[1].@"1");
+}
+
+test "aggregate: max per key" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    var data = try Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ 1, 30 }, .{ 1, 10 },  .{ 1, 20 },
+        .{ 2, 5 },  .{ 2, 500 },
+    });
+    defer data.deinit();
+
+    var result = try aggregate(Tuple, u32, u32, &ctx, &data, struct {
+        fn key(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.key, 0, struct {
+        fn fold(acc: u32, t: *const Tuple) u32 {
+            return @max(acc, t[1]);
+        }
+    }.fold);
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), result.len());
+    try std.testing.expectEqual(@as(u32, 30), result.elements[0].@"1");
+    try std.testing.expectEqual(@as(u32, 500), result.elements[1].@"1");
+}
+
+test "aggregate: empty input produces empty relation" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    var empty_rel = Relation(Tuple).empty(&ctx);
+    defer empty_rel.deinit();
+
+    var result = try aggregate(Tuple, u32, u32, &ctx, &empty_rel, struct {
+        fn key(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.key, 0, struct {
+        fn fold(acc: u32, t: *const Tuple) u32 {
+            return acc + t[1];
+        }
+    }.fold);
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), result.len());
+}
+
+test "aggregate: single group produces one row" {
+    const allocator = std.testing.allocator;
+    var ctx = ExecutionContext.init(allocator);
+    const Tuple = struct { u32, u32 };
+
+    var data = try Relation(Tuple).fromSlice(&ctx, &[_]Tuple{
+        .{ 7, 1 }, .{ 7, 2 }, .{ 7, 3 },
+    });
+    defer data.deinit();
+
+    var result = try aggregate(Tuple, u32, u32, &ctx, &data, struct {
+        fn key(t: *const Tuple) u32 {
+            return t[0];
+        }
+    }.key, 0, struct {
+        fn fold(acc: u32, t: *const Tuple) u32 {
+            return acc + t[1];
+        }
+    }.fold);
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), result.len());
+    try std.testing.expectEqual(@as(u32, 7), result.elements[0].@"0");
+    try std.testing.expectEqual(@as(u32, 6), result.elements[0].@"1");
+}
