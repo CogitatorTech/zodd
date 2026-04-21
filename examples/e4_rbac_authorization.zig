@@ -12,7 +12,7 @@ const zodd = @import("zodd");
 //   effective(U, P)  :- can_access(U, P), NOT denied(U, P).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var ctx = zodd.ExecutionContext.init(allocator);
@@ -130,7 +130,7 @@ pub fn main() !void {
     const PairList = std.ArrayListUnmanaged(Pair);
     var iter: usize = 0;
     while (try has_role.changed()) : (iter += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (has_role.recent.elements) |hr| {
@@ -173,7 +173,7 @@ pub fn main() !void {
     var has_role_by_role = zodd.Variable(Pair).init(&ctx);
     defer has_role_by_role.deinit();
     {
-        var flipped = PairList{};
+        var flipped = PairList.empty;
         defer flipped.deinit(allocator);
         for (has_role_result.elements) |hr| {
             try flipped.append(allocator, .{ hr[1], hr[0] }); // (Role, User)
@@ -205,7 +205,7 @@ pub fn main() !void {
     var can_access = zodd.Variable(Pair).init(&ctx);
     defer can_access.deinit();
     {
-        var pairs = PairList{};
+        var pairs = PairList.empty;
         defer pairs.deinit(allocator);
         for (can_access_triple.recent.elements) |t| {
             try pairs.append(allocator, .{ t[0], t[1] });
@@ -228,7 +228,7 @@ pub fn main() !void {
     var effective = zodd.Variable(Pair).init(&ctx);
     defer effective.deinit();
     {
-        var eff_list = PairList{};
+        var eff_list = PairList.empty;
         defer eff_list.deinit(allocator);
         for (can_access.recent.elements) |ca| {
             var is_denied = false;

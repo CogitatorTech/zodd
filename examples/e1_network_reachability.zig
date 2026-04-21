@@ -15,7 +15,7 @@ const zodd = @import("zodd");
 //   exposure(Z)     :- allowed(internet, Z).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var ctx = zodd.ExecutionContext.init(allocator);
@@ -107,7 +107,7 @@ pub fn main() !void {
     const PairList = std.ArrayListUnmanaged(Pair);
     var iteration: usize = 0;
     while (try reachable.changed()) : (iteration += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -139,7 +139,7 @@ pub fn main() !void {
 
     std.debug.print("\nApplying firewall rules...\n", .{});
 
-    var allowed = PairList{};
+    var allowed = PairList.empty;
     defer allowed.deinit(allocator);
 
     for (reach_result.elements) |r| {

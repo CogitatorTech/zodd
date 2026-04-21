@@ -17,7 +17,7 @@ const zodd = @import("zodd");
 //   - SecondaryIndex for efficient reverse-dependency lookups
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var ctx = zodd.ExecutionContext.init(allocator);
@@ -113,7 +113,7 @@ pub fn main() !void {
     const PairList = std.ArrayListUnmanaged(Pair);
     var iteration: usize = 0;
     while (try dep.changed()) : (iteration += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (dep.recent.elements) |d| {
@@ -170,7 +170,7 @@ pub fn main() !void {
     defer pkg_sizes.deinit();
 
     // Build (package, dep_size) pairs: for each dep(A, B), look up size of B.
-    var install_tuples = PairList{};
+    var install_tuples = PairList.empty;
     defer install_tuples.deinit(allocator);
 
     // Add each package's own size

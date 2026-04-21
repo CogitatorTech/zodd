@@ -15,7 +15,7 @@ const zodd = @import("zodd");
 // FilterAnti for sanitizer filtering.
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var ctx = zodd.ExecutionContext.init(allocator);
@@ -200,7 +200,7 @@ pub fn main() !void {
 
         // Filter out sanitized flows and convert back to Scalar
         const ScalarList = std.ArrayListUnmanaged(Scalar);
-        var new_tainted = ScalarList{};
+        var new_tainted = ScalarList.empty;
         defer new_tainted.deinit(allocator);
 
         for (proposed.recent.elements) |p| {

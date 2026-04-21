@@ -15,7 +15,7 @@ const zodd = @import("zodd");
 //   violation(D)     :- contains_pii(D), public_dataset(D).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var ctx = zodd.ExecutionContext.init(allocator);
@@ -184,7 +184,7 @@ pub fn main() !void {
 
         // Filter out anonymized transformations
         const ScalarList = std.ArrayListUnmanaged(Scalar);
-        var new_pii = ScalarList{};
+        var new_pii = ScalarList.empty;
         defer new_pii.deinit(allocator);
 
         for (proposed.recent.elements) |p| {

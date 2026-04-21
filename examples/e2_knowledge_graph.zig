@@ -15,7 +15,7 @@ const zodd = @import("zodd");
 //   side_effect(Drug, S):- treats(Drug, D), has_symptom(D, S).
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var ctx = zodd.ExecutionContext.init(allocator);
@@ -141,7 +141,7 @@ pub fn main() !void {
     const PairList = std.ArrayListUnmanaged(Pair);
     var iter: usize = 0;
     while (try is_a.changed()) : (iter += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (is_a.recent.elements) |r| {
@@ -176,7 +176,7 @@ pub fn main() !void {
 
     // For each is_a(D, D2), propagate symptoms from D2 to D
     {
-        var inherited = PairList{};
+        var inherited = PairList.empty;
         defer inherited.deinit(allocator);
 
         for (is_a_result.elements) |r| {
@@ -220,7 +220,7 @@ pub fn main() !void {
     var targets_by_protein = zodd.Variable(Pair).init(&ctx);
     defer targets_by_protein.deinit();
     {
-        var flipped = PairList{};
+        var flipped = PairList.empty;
         defer flipped.deinit(allocator);
         for (targets_rel.elements) |t| {
             try flipped.append(allocator, .{ t[1], t[0] }); // (Protein, Drug)
@@ -248,7 +248,7 @@ pub fn main() !void {
     _ = try treats_triple.changed();
 
     // Extract (Drug, Disease) pairs
-    var treats = PairList{};
+    var treats = PairList.empty;
     defer treats.deinit(allocator);
 
     for (treats_triple.recent.elements) |t| {
