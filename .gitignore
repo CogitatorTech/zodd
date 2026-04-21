@@ -98,3 +98,6 @@ docs/api/
 POST.md
 site/
 core.*
+.claude/
+.codex
+zig-pkg/
