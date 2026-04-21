@@ -22,7 +22,7 @@ test "transitive closure: linear chain" {
 
     var iters: usize = 0;
     while (try reachable.changed()) : (iters += 1) {
-        var results = EdgeList{};
+        var results = EdgeList.empty;
         defer results.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -67,7 +67,7 @@ test "transitive closure: diamond graph" {
 
     var iters: usize = 0;
     while (try reachable.changed()) : (iters += 1) {
-        var results = EdgeList{};
+        var results = EdgeList.empty;
         defer results.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -111,7 +111,7 @@ test "transitive closure: cycle detection" {
 
     var iters: usize = 0;
     while (try reachable.changed()) : (iters += 1) {
-        var results = EdgeList{};
+        var results = EdgeList.empty;
         defer results.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -156,7 +156,7 @@ test "same generation: parent-child hierarchy" {
 
     var iters: usize = 0;
     while (try same_gen.changed()) : (iters += 1) {
-        var results = PairList{};
+        var results = PairList.empty;
         defer results.deinit(allocator);
 
         for (same_gen.recent.elements) |sg| {
@@ -340,7 +340,7 @@ test "SecondaryIndex: getRange randomized integration" {
     var idx = Index.init(&ctx);
     defer idx.deinit();
 
-    var all = std.ArrayListUnmanaged(Tuple){};
+    var all = std.ArrayListUnmanaged(Tuple).empty;
     defer all.deinit(allocator);
 
     var prng = std.Random.DefaultPrng.init(0x5a5a5a5a);
@@ -362,7 +362,7 @@ test "SecondaryIndex: getRange randomized integration" {
         const start = @min(a, b);
         const end = @max(a, b);
 
-        var expected_list = std.ArrayListUnmanaged(Tuple){};
+        var expected_list = std.ArrayListUnmanaged(Tuple).empty;
         defer expected_list.deinit(allocator);
 
         for (all.items) |t| {
@@ -501,13 +501,13 @@ test "integration: persistence round-trip" {
     });
     defer original.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try original.save(buffer.writer(allocator));
+    try original.save(&aw.writer);
 
-    var fbs = std.io.fixedBufferStream(buffer.items);
-    var loaded = try zodd.Relation(Tuple).load(&ctx, fbs.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try zodd.Relation(Tuple).load(&ctx, &reader);
     defer loaded.deinit();
 
     try testing.expectEqual(original.len(), loaded.len());

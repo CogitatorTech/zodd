@@ -251,14 +251,14 @@ pub fn main() !void {
 
     for (source_pii_data) |src| {
         // BFS from source through non-anonymized transforms to see if it reaches the target
-        var frontier = std.ArrayListUnmanaged(u32){};
+        var frontier = std.ArrayListUnmanaged(u32).empty;
         defer frontier.deinit(allocator);
         try frontier.append(allocator, src[0]);
 
         var found = false;
         var step: usize = 0;
         while (frontier.items.len > 0 and step < 20) : (step += 1) {
-            var next_frontier = std.ArrayListUnmanaged(u32){};
+            var next_frontier = std.ArrayListUnmanaged(u32).empty;
             defer next_frontier.deinit(allocator);
 
             for (frontier.items) |node| {

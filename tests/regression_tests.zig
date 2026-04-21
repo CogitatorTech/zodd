@@ -239,13 +239,13 @@ test "regression: Relation save and load with tuples" {
     });
     defer original.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try original.save(buffer.writer(allocator));
+    try original.save(&aw.writer);
 
-    var fbs = std.io.fixedBufferStream(buffer.items);
-    var loaded = try zodd.Relation(Tuple).load(&ctx, fbs.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try zodd.Relation(Tuple).load(&ctx, &reader);
     defer loaded.deinit();
 
     try testing.expectEqual(original.len(), loaded.len());
@@ -353,10 +353,10 @@ test "regression: Relation loadWithLimit rejects large length" {
     var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    var writer = buffer.writer(allocator);
+    const writer = &aw.writer;
     try writer.writeAll("ZODDREL");
     try writer.writeInt(u8, 1, .little);
     try writer.writeInt(u64, 2, .little);
@@ -368,8 +368,8 @@ test "regression: Relation loadWithLimit rejects large length" {
     try writer.writeAll(std.mem.sliceAsBytes(&arr1));
     try writer.writeAll(std.mem.sliceAsBytes(&arr2));
 
-    var reader = std.io.fixedBufferStream(buffer.items);
-    try testing.expectError(error.TooLarge, zodd.Relation(Tuple).loadWithLimit(&ctx, reader.reader(), 1));
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    try testing.expectError(error.TooLarge, zodd.Relation(Tuple).loadWithLimit(&ctx, &reader, 1));
 }
 
 test "regression: extendInto resets leaper error" {
@@ -417,10 +417,10 @@ test "regression: loadWithLimit rejects invalid magic" {
     var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    var writer = buffer.writer(allocator);
+    const writer = &aw.writer;
     try writer.writeAll("BADMAGC");
     try writer.writeInt(u8, 1, .little);
     try writer.writeInt(u64, 1, .little);
@@ -429,8 +429,8 @@ test "regression: loadWithLimit rejects invalid magic" {
     const arr1 = [_]Tuple{t1};
     try writer.writeAll(std.mem.sliceAsBytes(&arr1));
 
-    var reader = std.io.fixedBufferStream(buffer.items);
-    try testing.expectError(error.InvalidFormat, zodd.Relation(Tuple).loadWithLimit(&ctx, reader.reader(), 10));
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    try testing.expectError(error.InvalidFormat, zodd.Relation(Tuple).loadWithLimit(&ctx, &reader, 10));
 }
 
 test "regression: loadWithLimit rejects unsupported version" {
@@ -438,10 +438,10 @@ test "regression: loadWithLimit rejects unsupported version" {
     var ctx = zodd.ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    var writer = buffer.writer(allocator);
+    const writer = &aw.writer;
     try writer.writeAll("ZODDREL");
     try writer.writeInt(u8, 2, .little);
     try writer.writeInt(u64, 1, .little);
@@ -450,8 +450,8 @@ test "regression: loadWithLimit rejects unsupported version" {
     const arr1 = [_]Tuple{t1};
     try writer.writeAll(std.mem.sliceAsBytes(&arr1));
 
-    var reader = std.io.fixedBufferStream(buffer.items);
-    try testing.expectError(error.UnsupportedVersion, zodd.Relation(Tuple).loadWithLimit(&ctx, reader.reader(), 10));
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    try testing.expectError(error.UnsupportedVersion, zodd.Relation(Tuple).loadWithLimit(&ctx, &reader, 10));
 }
 
 test "regression: joinAnti checks multiple stable batches" {

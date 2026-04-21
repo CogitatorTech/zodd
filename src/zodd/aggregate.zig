@@ -10,6 +10,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Relation = @import("relation.zig").Relation;
 const ExecutionContext = @import("context.zig").ExecutionContext;
+const WaitGroup = @import("context.zig").WaitGroup;
 
 /// Aggregate tuples by key using a folder.
 pub fn aggregate(
@@ -55,7 +56,7 @@ pub fn aggregate(
         const tasks = try ctx.allocator.alloc(Task, task_count);
         defer ctx.allocator.free(tasks);
 
-        var wg: std.Thread.WaitGroup = .{};
+        var wg: WaitGroup = .{};
         var t: usize = 0;
         while (t < task_count) : (t += 1) {
             const start = t * chunk;
@@ -84,7 +85,7 @@ pub fn aggregate(
     };
     std.sort.pdq(Intermediate, intermediates, {}, sortContext.lessThan);
 
-    var results = std.ArrayListUnmanaged(ResultTuple){};
+    var results = std.ArrayListUnmanaged(ResultTuple).empty;
     defer results.deinit(ctx.allocator);
 
     if (intermediates.len > 0) {

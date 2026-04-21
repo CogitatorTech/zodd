@@ -82,7 +82,7 @@ pub fn SecondaryIndex(
             var iter = try self.map.iterator();
             defer iter.deinit();
 
-            var result_tuples = std.ArrayListUnmanaged(Tuple){};
+            var result_tuples = std.ArrayListUnmanaged(Tuple).empty;
             defer result_tuples.deinit(self.allocator);
 
             while (try iter.next()) |entry| {

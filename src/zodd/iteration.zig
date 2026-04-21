@@ -10,6 +10,8 @@ const Allocator = std.mem.Allocator;
 const Variable = @import("variable.zig").Variable;
 const Relation = @import("relation.zig").Relation;
 const ExecutionContext = @import("context.zig").ExecutionContext;
+const Pool = @import("context.zig").Pool;
+const WaitGroup = @import("context.zig").WaitGroup;
 
 pub fn Iteration(comptime Tuple: type) type {
     return struct {
@@ -31,7 +33,7 @@ pub fn Iteration(comptime Tuple: type) type {
         /// Initializes a new iteration.
         pub fn init(ctx: *ExecutionContext, max_iterations: ?usize) Self {
             return Self{
-                .variables = VarList{},
+                .variables = VarList.empty,
                 .allocator = ctx.allocator,
                 .ctx = ctx,
                 .max_iterations = max_iterations orelse std.math.maxInt(usize),
@@ -78,7 +80,7 @@ pub fn Iteration(comptime Tuple: type) type {
             return any_changed;
         }
 
-        fn changedParallel(self: *Self, pool: *std.Thread.Pool) !bool {
+        fn changedParallel(self: *Self, pool: *Pool) !bool {
             const count = self.variables.items.len;
             const Task = struct {
                 var_ptr: *Var,
@@ -96,7 +98,7 @@ pub fn Iteration(comptime Tuple: type) type {
             const tasks = try self.allocator.alloc(Task, count);
             defer self.allocator.free(tasks);
 
-            var wg: std.Thread.WaitGroup = .{};
+            var wg: WaitGroup = .{};
             for (self.variables.items, 0..) |v, i| {
                 tasks[i] = .{ .var_ptr = v };
                 pool.spawnWg(&wg, Task.run, .{&tasks[i]});

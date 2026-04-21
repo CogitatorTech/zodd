@@ -155,7 +155,7 @@ test "property: transitive closure reaches expected nodes" {
                 var iters: usize = 0;
                 const EdgeList = std.ArrayListUnmanaged(Edge);
                 while (try reachable.changed()) : (iters += 1) {
-                    var results = EdgeList{};
+                    var results = EdgeList.empty;
                     defer results.deinit(testing.allocator);
 
                     for (reachable.recent.elements) |r| {
@@ -309,7 +309,7 @@ test "property: joinHelper matches naive join" {
                 defer rel2.deinit();
 
                 const Result = struct { u32, u32, u32 };
-                var expected_list = std.ArrayListUnmanaged(Result){};
+                var expected_list = std.ArrayListUnmanaged(Result).empty;
                 defer expected_list.deinit(testing.allocator);
 
                 for (rel1.elements) |t1| {
@@ -333,7 +333,7 @@ test "property: joinHelper matches naive join" {
                     }
                 };
 
-                var got_list = ResultList{};
+                var got_list = ResultList.empty;
                 defer got_list.deinit(testing.allocator);
 
                 zodd.joinHelper(u32, u32, u32, &rel1, &rel2, Context{ .results = &got_list, .alloc = testing.allocator }, Context.callback);
@@ -387,7 +387,7 @@ test "property: joinAnti matches naive filter" {
 
                 _ = try output.changed();
 
-                var expected_list = std.ArrayListUnmanaged(Tuple){};
+                var expected_list = std.ArrayListUnmanaged(Tuple).empty;
                 defer expected_list.deinit(testing.allocator);
 
                 for (input.recent.elements) |t| {
@@ -461,7 +461,7 @@ test "property: extendInto matches naive extend" {
 
                 _ = try output.changed();
 
-                var expected_list = std.ArrayListUnmanaged(KV){};
+                var expected_list = std.ArrayListUnmanaged(KV).empty;
                 defer expected_list.deinit(testing.allocator);
 
                 for (source.recent.elements) |t| {
@@ -526,7 +526,7 @@ test "property: SecondaryIndex get matches naive filter" {
                 while (i < rel.elements.len) : (i += 1) {
                     const key = rel.elements[i][0];
 
-                    var expected_list = std.ArrayListUnmanaged(Tuple){};
+                    var expected_list = std.ArrayListUnmanaged(Tuple).empty;
                     defer expected_list.deinit(testing.allocator);
 
                     for (data) |t| {
@@ -592,7 +592,7 @@ test "property: aggregate matches naive sum" {
                     entry.value_ptr.* += t[1];
                 }
 
-                var expected_list = std.ArrayListUnmanaged(struct { u32, u32 }){};
+                var expected_list = std.ArrayListUnmanaged(struct { u32, u32 }).empty;
                 defer expected_list.deinit(testing.allocator);
 
                 var it = map.iterator();
@@ -631,13 +631,13 @@ test "property: persistence round-trip" {
                 var original = try zodd.Relation(Tuple).fromSlice(&ctx, data);
                 defer original.deinit();
 
-                var buffer = std.ArrayListUnmanaged(u8){};
-                defer buffer.deinit(testing.allocator);
+                var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+                defer aw.deinit();
 
-                try original.save(buffer.writer(testing.allocator));
+                try original.save(&aw.writer);
 
-                var fbs = std.io.fixedBufferStream(buffer.items);
-                var loaded = try zodd.Relation(Tuple).load(&ctx, fbs.reader());
+                var reader = std.Io.Reader.fixed(aw.writer.buffered());
+                var loaded = try zodd.Relation(Tuple).load(&ctx, &reader);
                 defer loaded.deinit();
 
                 try testing.expectEqual(original.len(), loaded.len());
@@ -699,7 +699,7 @@ test "property: aggregate count matches naive count" {
                     g.value_ptr.* += 1;
                 }
 
-                var expected_list = std.ArrayListUnmanaged(struct { u32, u32 }){};
+                var expected_list = std.ArrayListUnmanaged(struct { u32, u32 }).empty;
                 defer expected_list.deinit(testing.allocator);
 
                 var it = map.iterator();

@@ -110,7 +110,7 @@ test "incremental maintenance: transitive closure re-convergence" {
 
     var iters: usize = 0;
     while (try reachable.changed()) {
-        var new = EdgeList{};
+        var new = EdgeList.empty;
         defer new.deinit(allocator);
 
         for (reachable.recent.elements) |r| {
@@ -140,7 +140,7 @@ test "incremental maintenance: transitive closure re-convergence" {
 
     iters = 0;
     while (try reachable.changed()) {
-        var new = EdgeList{};
+        var new = EdgeList.empty;
         defer new.deinit(allocator);
 
         for (reachable.recent.elements) |r| {

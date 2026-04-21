@@ -51,9 +51,9 @@ pub fn Variable(comptime Tuple: type) type {
         /// - `initial_data`: (Optional) The initial relation.
         pub fn init(ctx: *ExecutionContext) Self {
             return Self{
-                .stable = RelList{},
+                .stable = RelList.empty,
                 .recent = Rel.empty(ctx),
-                .to_add = RelList{},
+                .to_add = RelList.empty,
                 .allocator = ctx.allocator,
                 .ctx = ctx,
             };

@@ -2,15 +2,15 @@
     .name = .zodd,
     .version = "0.1.0-alpha.3",
     .fingerprint = 0x2d03181bdd24914c, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .minish = .{
-            .url = "https://github.com/CogitatorTech/minish/archive/refs/tags/v0.1.0.tar.gz",
-            .hash = "minish-0.1.0-SQtSTWHkAQACfz3xGuWHU8zbx320vK_47r2yto3Pq0Rf",
+            .url = "https://github.com/CogitatorTech/minish/archive/refs/tags/v0.3.0.tar.gz",
+            .hash = "minish-0.3.0-SQtSTYI3AgCxWdWbKxS_lvmfbp0wJk29ZW5C9CozJaxm",
         },
         .ordered = .{
-            .url = "https://github.com/CogitatorTech/ordered/archive/v0.1.0.tar.gz",
-            .hash = "ordered-0.1.0-Gy41sFoCAgDHx9wCElUaCuHvNP7idFfa375M2-UHXMPf",
+            .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.2.0.tar.gz",
+            .hash = "ordered-0.2.0-Gy41sAAkAgBO3TZAn9nYuspdeDcD_sHLoIGEZY4pCDDM",
         },
     },
     .paths = .{ "build.zig", "build.zig.zon", "src", "LICENSE", "README.md" },

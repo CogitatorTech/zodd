@@ -15,6 +15,7 @@ const Relation = @import("relation.zig").Relation;
 const Variable = @import("variable.zig").Variable;
 const gallop = @import("variable.zig").gallop;
 const ExecutionContext = @import("context.zig").ExecutionContext;
+const WaitGroup = @import("context.zig").WaitGroup;
 
 /// Performs a merge-join between two sorted relations on a common key.
 ///
@@ -126,7 +127,7 @@ pub fn joinInto(
     logic: fn (*const Key, *const Val1, *const Val2) Result,
 ) Allocator.Error!void {
     const ResultList = std.ArrayListUnmanaged(Result);
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(output.allocator);
 
     const Context = struct {
@@ -149,7 +150,7 @@ pub fn joinInto(
         const Task = struct {
             left: *const Relation(struct { Key, Val1 }),
             right: *const Relation(struct { Key, Val2 }),
-            results: std.ArrayListUnmanaged(Result) = .{},
+            results: std.ArrayListUnmanaged(Result) = .empty,
             alloc: Allocator,
             had_error: bool = false,
 
@@ -193,7 +194,7 @@ pub fn joinInto(
         }
 
         if (ctx.pool) |*pool| {
-            var wg: std.Thread.WaitGroup = .{};
+            var wg: WaitGroup = .{};
             for (tasks) |*task| {
                 pool.*.spawnWg(&wg, Task.run, .{task});
             }
@@ -244,14 +245,14 @@ pub fn joinAnti(
     logic: fn (*const Key, *const Val) Result,
 ) Allocator.Error!void {
     const ResultList = std.ArrayListUnmanaged(Result);
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(output.allocator);
 
     if (ctx.pool != null and input.recent.elements.len > 0) {
         const Task = struct {
             slice: []const struct { Key, Val },
             filter: *const Variable(struct { Key, FilterVal }),
-            results: std.ArrayListUnmanaged(Result) = .{},
+            results: std.ArrayListUnmanaged(Result) = .empty,
             alloc: Allocator,
             logic: *const fn (*const Key, *const Val) Result,
             had_error: bool = false,
@@ -306,7 +307,7 @@ pub fn joinAnti(
         }
 
         if (ctx.pool) |*pool| {
-            var wg: std.Thread.WaitGroup = .{};
+            var wg: WaitGroup = .{};
             for (tasks) |*task| {
                 pool.*.spawnWg(&wg, Task.run, .{task});
             }
@@ -388,7 +389,7 @@ test "joinHelper: basic" {
         }
     };
 
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(allocator);
 
     joinHelper(u32, u32, u32, &input1, &input2, Context{ .results = &results, .alloc = allocator }, Context.callback);
@@ -489,7 +490,7 @@ test "joinHelper: multiplicative matches" {
         }
     };
 
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(allocator);
 
     joinHelper(u32, u32, u32, &input1, &input2, Context{ .results = &results, .alloc = allocator }, Context.callback);

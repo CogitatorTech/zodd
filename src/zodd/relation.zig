@@ -26,6 +26,7 @@ const mem = std.mem;
 const sort = std.sort;
 const Allocator = mem.Allocator;
 const ExecutionContext = @import("context.zig").ExecutionContext;
+const WaitGroup = @import("context.zig").WaitGroup;
 
 pub fn Relation(comptime Tuple: type) type {
     return struct {
@@ -78,7 +79,7 @@ pub fn Relation(comptime Tuple: type) type {
                 const tasks = try ctx.allocator.alloc(Task, task_count);
                 defer ctx.allocator.free(tasks);
 
-                var wg: std.Thread.WaitGroup = .{};
+                var wg: WaitGroup = .{};
                 var t: usize = 0;
                 while (t < task_count) : (t += 1) {
                     const start = t * chunk;
@@ -111,7 +112,7 @@ pub fn Relation(comptime Tuple: type) type {
                     const tasks = try ctx.allocator.alloc(Task, task_count);
                     defer ctx.allocator.free(tasks);
 
-                    var wg: std.Thread.WaitGroup = .{};
+                    var wg: WaitGroup = .{};
                     var t2: usize = 0;
                     while (t2 < task_count) : (t2 += 1) {
                         const start = t2 * chunk;
@@ -345,17 +346,17 @@ pub fn Relation(comptime Tuple: type) type {
 
         fn readValue(comptime T: type, reader: anytype) !T {
             return switch (@typeInfo(T)) {
-                .int => try reader.readInt(T, .little),
-                .bool => (try reader.readInt(u8, .little)) != 0,
+                .int => try reader.takeInt(T, .little),
+                .bool => (try reader.takeInt(u8, .little)) != 0,
                 .float => blk: {
                     const IntType = std.meta.Int(.unsigned, @bitSizeOf(T));
-                    const bits = try reader.readInt(IntType, .little);
+                    const bits = try reader.takeInt(IntType, .little);
                     break :blk @as(T, @bitCast(bits));
                 },
                 .@"enum" => blk: {
                     const info = @typeInfo(T).@"enum";
                     const Tag = info.tag_type;
-                    const bits = try reader.readInt(Tag, .little);
+                    const bits = try reader.takeInt(Tag, .little);
                     break :blk @as(T, @enumFromInt(bits));
                 },
                 .array => |info| blk: {
@@ -396,16 +397,16 @@ pub fn Relation(comptime Tuple: type) type {
         /// Loads a relation from a reader with a limit on the number of elements.
         pub fn loadWithLimit(ctx: *ExecutionContext, reader: anytype, max_len: usize) !Self {
             if (!isSerializableType(Tuple)) return error.UnsupportedType;
-            const magic = try reader.readBytesNoEof(7);
-            if (!std.mem.eql(u8, &magic, "ZODDREL")) {
+            const magic = try reader.takeArray(7);
+            if (!std.mem.eql(u8, magic, "ZODDREL")) {
                 return error.InvalidFormat;
             }
-            const version = try reader.readInt(u8, .little);
+            const version = try reader.takeInt(u8, .little);
             if (version != 1) {
                 return error.UnsupportedVersion;
             }
 
-            const length_u64 = try reader.readInt(u64, .little);
+            const length_u64 = try reader.takeInt(u64, .little);
             const length = std.math.cast(usize, length_u64) orelse return error.InvalidFormat;
             if (length == 0) {
                 return Self.empty(ctx);
@@ -465,13 +466,13 @@ test "Relation: persistence" {
     });
     defer original.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try original.save(buffer.writer(allocator));
+    try original.save(&aw.writer);
 
-    var fbs = std.io.fixedBufferStream(buffer.items);
-    var loaded = try Relation(Tuple).load(&ctx, fbs.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(Tuple).load(&ctx, &reader);
     defer loaded.deinit();
 
     try std.testing.expectEqual(original.len(), loaded.len());
@@ -529,10 +530,10 @@ test "Relation: load normalizes order" {
     var ctx = ExecutionContext.init(allocator);
     const Tuple = struct { u32, u32 };
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    var writer = buffer.writer(allocator);
+    const writer = &aw.writer;
     try writer.writeAll("ZODDREL");
     try writer.writeInt(u8, 1, .little);
     const raw = [_]Tuple{
@@ -546,8 +547,8 @@ test "Relation: load normalizes order" {
         try writer.writeInt(u32, tuple[1], .little);
     }
 
-    var reader = std.io.fixedBufferStream(buffer.items);
-    var rel = try Relation(Tuple).load(&ctx, reader.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var rel = try Relation(Tuple).load(&ctx, &reader);
     defer rel.deinit();
 
     try std.testing.expectEqual(@as(usize, 2), rel.len());
@@ -559,16 +560,16 @@ test "Relation: loadWithLimit zero length with zero limit" {
     const allocator = std.testing.allocator;
     var ctx = ExecutionContext.init(allocator);
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    var writer = buffer.writer(allocator);
+    const writer = &aw.writer;
     try writer.writeAll("ZODDREL");
     try writer.writeInt(u8, 1, .little);
     try writer.writeInt(u64, 0, .little);
 
-    var reader = std.io.fixedBufferStream(buffer.items);
-    var rel = try Relation(u32).loadWithLimit(&ctx, reader.reader(), 0);
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var rel = try Relation(u32).loadWithLimit(&ctx, &reader, 0);
     defer rel.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), rel.len());
@@ -581,13 +582,13 @@ test "Relation: scalar save and load" {
     var original = try Relation(u32).fromSlice(&ctx, &[_]u32{ 3, 1, 2, 2 });
     defer original.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try original.save(buffer.writer(allocator));
+    try original.save(&aw.writer);
 
-    var fbs = std.io.fixedBufferStream(buffer.items);
-    var loaded = try Relation(u32).load(&ctx, fbs.reader());
+    var reader = std.Io.Reader.fixed(aw.writer.buffered());
+    var loaded = try Relation(u32).load(&ctx, &reader);
     defer loaded.deinit();
 
     try std.testing.expectEqual(original.len(), loaded.len());
@@ -631,18 +632,18 @@ test "Relation: save/load unsupported type" {
     var rel = Relation(Bad).empty(&ctx);
     defer rel.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
-    defer buffer.deinit(allocator);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
 
-    try std.testing.expectError(error.UnsupportedType, rel.save(buffer.writer(allocator)));
+    try std.testing.expectError(error.UnsupportedType, rel.save(&aw.writer));
 
     var header: [16]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&header);
-    try fbs.writer().writeAll("ZODDREL");
-    try fbs.writer().writeInt(u8, 1, .little);
-    try fbs.writer().writeInt(u64, 0, .little);
-    const used = fbs.pos;
+    var header_writer = std.Io.Writer.fixed(&header);
+    try header_writer.writeAll("ZODDREL");
+    try header_writer.writeInt(u8, 1, .little);
+    try header_writer.writeInt(u64, 0, .little);
+    const used = header_writer.end;
 
-    var reader_fbs = std.io.fixedBufferStream(header[0..used]);
-    try std.testing.expectError(error.UnsupportedType, Relation(Bad).load(&ctx, reader_fbs.reader()));
+    var reader_fbs = std.Io.Reader.fixed(header[0..used]);
+    try std.testing.expectError(error.UnsupportedType, Relation(Bad).load(&ctx, &reader_fbs));
 }

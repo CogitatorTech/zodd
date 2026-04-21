@@ -36,9 +36,11 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_lib_tests.step);
 
+    const io = b.graph.io;
+
     // Discover and add tests from tests/ directory
     // (only available when developing zodd, not when used as a dependency)
-    if (std.fs.cwd().openDir("tests", .{ .iterate = true })) |tests_dir| {
+    if (b.build_root.handle.openDir(io, "tests", .{ .iterate = true })) |tests_dir| {
         // Lazy-load Minish dependency (only needed for property tests)
         const minish_dep = b.dependency("minish", .{
             .target = target,
@@ -47,7 +49,7 @@ pub fn build(b: *std.Build) void {
 
         var dir = tests_dir;
         var it = dir.iterate();
-        while (it.next() catch null) |entry| {
+        while (it.next(io) catch null) |entry| {
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
 
@@ -76,12 +78,12 @@ pub fn build(b: *std.Build) void {
     } else |_| {}
 
     // Discover and add examples from examples/ directory
-    if (std.fs.cwd().openDir("examples", .{ .iterate = true })) |examples_dir| {
+    if (b.build_root.handle.openDir(io, "examples", .{ .iterate = true })) |examples_dir| {
         var dir = examples_dir;
         const run_all_step = b.step("run-all", "Run all examples");
 
         var it = dir.iterate();
-        while (it.next() catch null) |entry| {
+        while (it.next(io) catch null) |entry| {
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
 

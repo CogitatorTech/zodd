@@ -17,6 +17,7 @@ const Relation = @import("relation.zig").Relation;
 const Variable = @import("variable.zig").Variable;
 const gallop = @import("variable.zig").gallop;
 const ExecutionContext = @import("context.zig").ExecutionContext;
+const WaitGroup = @import("context.zig").WaitGroup;
 
 /// Creates a Leaper interface type for a Tuple and Value type.
 ///
@@ -354,10 +355,10 @@ pub fn extendInto(
     const ResultList = std.ArrayListUnmanaged(Result);
     const ValList = std.ArrayListUnmanaged(*const Val);
 
-    var results = ResultList{};
+    var results = ResultList.empty;
     defer results.deinit(output.allocator);
 
-    var values = ValList{};
+    var values = ValList.empty;
     defer values.deinit(output.allocator);
 
     var had_error = false;
@@ -370,12 +371,12 @@ pub fn extendInto(
             slice: []const Tuple,
             base_leapers: []Leaper(Tuple, Val),
             leapers: []Leaper(Tuple, Val) = &[_]Leaper(Tuple, Val){},
-            results: std.ArrayListUnmanaged(Result) = .{},
+            results: std.ArrayListUnmanaged(Result) = .empty,
             had_error: bool = false,
             logic_fn: *const fn (*const Tuple, *const Val) Result,
 
             fn run(task: *@This()) void {
-                var local_values = std.ArrayListUnmanaged(*const Val){};
+                var local_values = std.ArrayListUnmanaged(*const Val).empty;
                 defer local_values.deinit(task.base_leapers[0].allocator);
 
                 for (task.slice) |*tuple| {
@@ -455,7 +456,7 @@ pub fn extendInto(
         }
 
         if (ctx.pool) |*pool| {
-            var wg: std.Thread.WaitGroup = .{};
+            var wg: WaitGroup = .{};
             for (tasks) |*task| {
                 pool.*.spawnWg(&wg, Task.run, .{task});
             }
@@ -681,7 +682,7 @@ test "ExtendAnti: proposes absent values" {
     }.f);
 
     const tuple: u32 = 1;
-    var values = std.ArrayListUnmanaged(*const u32){};
+    var values = std.ArrayListUnmanaged(*const u32).empty;
     defer values.deinit(allocator);
 
     // Candidates to check: 10 (present), 15 (absent), 20 (present), 30 (absent)
@@ -824,7 +825,7 @@ test "ExtendWith: count zero does not propose values" {
     const cnt = ext.leaper().count(&tuple);
     try std.testing.expectEqual(@as(usize, 0), cnt);
 
-    var values = std.ArrayListUnmanaged(*const u32){};
+    var values = std.ArrayListUnmanaged(*const u32).empty;
     defer values.deinit(allocator);
     var leaper = ext.leaper();
     leaper.propose(&tuple, &values);
@@ -857,7 +858,7 @@ test "FilterAnti and ExtendAnti: empty relation" {
 
     const v10: u32 = 10;
     const v20: u32 = 20;
-    var values = std.ArrayListUnmanaged(*const u32){};
+    var values = std.ArrayListUnmanaged(*const u32).empty;
     defer values.deinit(allocator);
     try values.append(allocator, &v10);
     try values.append(allocator, &v20);
