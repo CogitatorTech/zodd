@@ -73,9 +73,9 @@ web: ## Build the web frontend Wasm module and stage it under web/
 	$(ZIG) build wasm
 	cp $(BUILD_DIR)/web/zodd.wasm web/zodd.wasm
 
-web-serve: web ## Build and serve the web frontend at http://localhost:8000
-	@echo "Serving web/ at http://localhost:8000 ..."
-	python3 -m http.server 8000 --directory web
+web-serve: web ## Build and serve the web frontend at http://localhost:8085
+	@echo "Serving web/ at http://localhost:8085 ..."
+	python3 -m http.server 8085 --directory web
 
 web-test: web ## Run the Node.js smoke test against the Wasm module
 	@echo "Running the Wasm smoke test..."

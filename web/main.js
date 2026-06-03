@@ -423,7 +423,7 @@ function escapeHtml(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function highlight(source) {
+function highlight(source, errorLine = null) {
   let html = "";
   let last = 0;
   for (const match of source.matchAll(TOKEN_RE)) {
@@ -437,6 +437,15 @@ function highlight(source) {
     last = match.index + match[0].length;
   }
   html += escapeHtml(source.slice(last));
+
+  if (errorLine !== null) {
+    const lines = html.split("\n");
+    if (errorLine >= 1 && errorLine <= lines.length) {
+      lines[errorLine - 1] = `<span class="line-error">${lines[errorLine - 1]}</span>`;
+    }
+    return lines.join("\n");
+  }
+
   return html;
 }
 
@@ -462,11 +471,18 @@ const sourceEl = document.getElementById("source");
 const highlightEl = document.getElementById("highlight");
 const highlightCodeEl = document.getElementById("highlight-code");
 const outputEl = document.getElementById("output");
+const outputTableEl = document.getElementById("output-table");
+const viewTextEl = document.getElementById("view-text");
+const viewTableEl = document.getElementById("view-table");
 const statusEl = document.getElementById("status");
 const examplesEl = document.getElementById("examples");
 const runEl = document.getElementById("run");
 const shareEl = document.getElementById("share");
 const loadEl = document.getElementById("load");
+const downloadEl = document.getElementById("download");
+const clearEl = document.getElementById("clear");
+const clearOutputEl = document.getElementById("clear-output");
+const telemetryInfoEl = document.getElementById("telemetry-info");
 const fileEl = document.getElementById("file");
 const themeEl = document.getElementById("theme");
 const aboutEl = document.getElementById("about");
@@ -475,16 +491,33 @@ const aboutCloseEl = document.getElementById("about-close");
 const dividerEl = document.getElementById("divider");
 const editorPane = document.querySelector(".editor-pane");
 
-function syncHighlight() {
+function syncHighlight(errorLine = null) {
   // A trailing newline keeps the backdrop the same height as the textarea.
-  highlightCodeEl.innerHTML = highlight(sourceEl.value) + "\n";
+  highlightCodeEl.innerHTML = highlight(sourceEl.value, errorLine) + "\n";
   highlightEl.scrollTop = sourceEl.scrollTop;
   highlightEl.scrollLeft = sourceEl.scrollLeft;
+  const gutter = document.querySelector(".editor-gutter");
+  if (gutter) {
+    gutter.scrollTop = sourceEl.scrollTop;
+  }
+  updateLineNumbers();
+}
+
+function updateLineNumbers() {
+  const el = document.getElementById("linenos");
+  if (!el) return;
+  const lineCount = sourceEl.value.split("\n").length || 1;
+  let numbers = "";
+  for (let i = 1; i <= lineCount; i++) {
+    numbers += i + "\n";
+  }
+  el.textContent = numbers;
 }
 
 function setSource(text) {
   sourceEl.value = text;
-  syncHighlight();
+  syncHighlight(null);
+  localStorage.setItem("zodd-source", text);
 }
 
 function setStatus(text, kind) {
@@ -500,14 +533,35 @@ function execute() {
     result = runProgram(sourceEl.value);
   } catch (err) {
     outputEl.textContent = `internal error: ${err}`;
-    outputEl.className = "error";
+    outputEl.classList.add("error");
+    outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error);">${escapeHtml("internal error: " + err)}</div>`;
     setStatus("trap", "error");
+    telemetryInfoEl.textContent = "Internal Trap";
     return;
   }
   const elapsed = (performance.now() - started).toFixed(1);
   outputEl.textContent = result.out || "(no output)";
-  outputEl.className = result.status === 0 ? "" : "error";
-  setStatus(result.status === 0 ? `ok, ${elapsed} ms` : `error, ${elapsed} ms`, result.status === 0 ? "ok" : "error");
+  outputEl.classList.toggle("error", result.status !== 0);
+
+  if (result.status === 0) {
+    setStatus("SUCCESS", "ok");
+    telemetryInfoEl.textContent = `Duration: ${elapsed} ms | Size: ${result.out.length} chars`;
+    outputTableEl.innerHTML = parseOutputToTables(result.out);
+    syncHighlight(null);
+  } else {
+    setStatus("error", "error");
+    telemetryInfoEl.textContent = `Failed in ${elapsed} ms`;
+    outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error); white-space: pre-wrap; font-family: var(--mono);">${escapeHtml(result.out)}</div>`;
+
+    // Attempt to parse the error line from the diagnostic message (formatted as "line:col: message")
+    const match = result.out.match(/^(\d+):(\d+):/);
+    if (match) {
+      const errorLine = parseInt(match[1], 10);
+      syncHighlight(errorLine);
+    } else {
+      syncHighlight(null);
+    }
+  }
 }
 
 function share() {
@@ -537,8 +591,11 @@ examplesEl.addEventListener("change", () => {
 });
 
 // Editor events.
-sourceEl.addEventListener("input", syncHighlight);
-sourceEl.addEventListener("scroll", syncHighlight);
+sourceEl.addEventListener("input", () => {
+  syncHighlight(null);
+  localStorage.setItem("zodd-source", sourceEl.value);
+});
+sourceEl.addEventListener("scroll", () => syncHighlight(null));
 sourceEl.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     event.preventDefault();
@@ -548,6 +605,30 @@ sourceEl.addEventListener("keydown", (event) => {
 
 runEl.addEventListener("click", execute);
 shareEl.addEventListener("click", share);
+
+downloadEl.addEventListener("click", () => {
+  const blob = new Blob([sourceEl.value], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "program.dl";
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus("downloaded", "ok");
+});
+
+clearEl.addEventListener("click", () => {
+  setSource("");
+  setStatus("CLEARED", "cleared");
+});
+
+clearOutputEl.addEventListener("click", () => {
+  outputEl.textContent = "";
+  outputEl.classList.remove("error");
+  outputTableEl.innerHTML = "";
+  setStatus("CLEARED", "cleared");
+  telemetryInfoEl.textContent = "";
+});
 
 // Loading a Datalog script from a file.
 loadEl.addEventListener("click", () => fileEl.click());
@@ -602,7 +683,7 @@ dividerEl.addEventListener("pointerdown", (event) => {
   dividerEl.addEventListener("pointerup", onUp);
 });
 
-// Initial program: a permalink if present, the first example otherwise.
+// Initial program: a permalink if present, the autosaved progress if available, or the first example otherwise.
 (function initSource() {
   const hash = window.location.hash;
   if (hash.startsWith("#program=")) {
@@ -613,18 +694,306 @@ dividerEl.addEventListener("pointerdown", (event) => {
       // Bad permalink; fall back to the first example.
     }
   }
+  const saved = localStorage.getItem("zodd-source");
+  if (saved !== null) {
+    setSource(saved);
+    return;
+  }
   setSource(EXAMPLES[0].source);
 })();
+
+// --- Output View Toggling & Parsing -------------------------------------------
+
+let currentView = "text"; // "text" or "table"
+
+function setView(view) {
+  currentView = view;
+  if (view === "table") {
+    viewTableEl.classList.add("active");
+    viewTextEl.classList.remove("active");
+    outputEl.classList.add("hidden");
+    outputTableEl.classList.remove("hidden");
+  } else {
+    viewTextEl.classList.add("active");
+    viewTableEl.classList.remove("active");
+    outputTableEl.classList.add("hidden");
+    outputEl.classList.remove("hidden");
+  }
+}
+
+viewTextEl.addEventListener("click", () => setView("text"));
+viewTableEl.addEventListener("click", () => setView("table"));
+
+// Delegated listener to copy a table's data in TSV format (ignoring the index column)
+outputTableEl.addEventListener("click", (event) => {
+  const btn = event.target.closest(".copy-table-btn");
+  if (!btn) return;
+
+  const group = btn.closest(".output-table-group");
+  if (!group) return;
+
+  const table = group.querySelector(".output-table-el");
+  if (!table) return;
+
+  const rows = table.querySelectorAll("tbody tr");
+  const headers = table.querySelectorAll("thead th");
+
+  let tsvLines = [];
+
+  // Headers (skipping index column)
+  let headerCols = [];
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i].classList.contains("index-col")) continue;
+    headerCols.push(headers[i].textContent);
+  }
+  tsvLines.push(headerCols.join("\t"));
+
+  // Rows (skipping index column)
+  for (let r = 0; r < rows.length; r++) {
+    const cells = rows[r].querySelectorAll("td");
+    let rowCols = [];
+    for (let c = 0; c < cells.length; c++) {
+      if (cells[c].classList.contains("index-col")) continue;
+      rowCols.push(cells[c].textContent);
+    }
+    tsvLines.push(rowCols.join("\t"));
+  }
+
+  const tsvText = tsvLines.join("\n");
+  navigator.clipboard.writeText(tsvText).then(() => {
+    const originalText = btn.textContent;
+    btn.textContent = "Copied!";
+    btn.style.borderColor = "var(--ok)";
+    btn.style.color = "var(--ok)";
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.borderColor = "";
+      btn.style.color = "";
+    }, 1500);
+  }).catch((err) => {
+    console.error("Clipboard copy failed: ", err);
+  });
+});
+
+function parseOutputToTables(text) {
+  if (!text || text.trim() === "") {
+    return `<div class="output-table-no-results">No results returned.</div>`;
+  }
+
+  const lines = text.split("\n");
+  const parts = [];
+  let currentTable = null;
+  let currentText = [];
+
+  function flushText() {
+    if (currentText.length > 0) {
+      // Remove trailing empty line if it is just a spacing artifact
+      if (currentText[currentText.length - 1] === "") {
+        currentText.pop();
+      }
+      if (currentText.length > 0) {
+        parts.push({
+          type: "text",
+          content: currentText.join("\n")
+        });
+      }
+      currentText = [];
+    }
+  }
+
+  function flushTable() {
+    if (currentTable) {
+      parts.push({
+        type: "table",
+        title: currentTable.title,
+        rows: currentTable.rows,
+        truncated: currentTable.truncated
+      });
+      currentTable = null;
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (currentTable) {
+        continue;
+      }
+      if (currentText.length > 0) {
+        currentText.push(line);
+      }
+      continue;
+    }
+
+    // Check if the line is a block header: e.g. "pred_name:" or "?- q:"
+    if (trimmed.endsWith(":") && !trimmed.startsWith("(")) {
+      flushText();
+      flushTable();
+      const title = trimmed.slice(0, -1).trim();
+      currentTable = {
+        title: title,
+        rows: [],
+        truncated: null
+      };
+      continue;
+    }
+
+    // Check if the line is a tuple: e.g. "(1, 2)" or "  (1, 2)"
+    if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+      flushText();
+      const content = trimmed.slice(1, -1).trim();
+      const rowData = parseTuple(content);
+      if (currentTable) {
+        currentTable.rows.push(rowData);
+      } else {
+        currentTable = { title: "Results", rows: [rowData], truncated: null };
+      }
+      continue;
+    }
+
+    // Check if it is a truncation warning
+    if (trimmed.startsWith("... (output truncated")) {
+      if (currentTable) {
+        currentTable.truncated = trimmed;
+      } else {
+        currentText.push(line);
+      }
+      continue;
+    }
+
+    // Otherwise, it is non-tabular text
+    flushTable();
+    currentText.push(line);
+  }
+
+  flushText();
+  flushTable();
+
+  if (parts.length === 0) {
+    return `<div class="output-table-no-results">No results.</div>`;
+  }
+
+  let html = "";
+  for (const part of parts) {
+    if (part.type === "text") {
+      html += `<pre class="output-table-text-block">${escapeHtml(part.content)}</pre>`;
+    } else if (part.type === "table") {
+      html += `<div class="output-table-group">`;
+      html += `<div class="output-table-header-row">`;
+      html += `<h4 class="output-table-title">${escapeHtml(part.title)}</h4>`;
+      if (part.rows.length > 0) {
+        html += `<button class="copy-table-btn" title="Copy table to clipboard">Copy</button>`;
+      }
+      html += `</div>`;
+      if (part.rows.length === 0) {
+        html += `<div class="output-table-no-results">No rows.</div>`;
+      } else {
+        html += `<table class="output-table-el">`;
+        const arity = part.rows[0].length;
+        html += `<thead><tr>`;
+        html += `<th class="index-col">#</th>`;
+        for (let c = 1; c <= arity; c++) {
+          html += `<th>Col ${c}</th>`;
+        }
+        html += `</tr></thead>`;
+
+        html += `<tbody>`;
+        for (let r = 0; r < part.rows.length; r++) {
+          const row = part.rows[r];
+          html += `<tr>`;
+          html += `<td class="index-col">${r + 1}</td>`;
+          for (const val of row) {
+            html += `<td>${escapeHtml(cleanValue(val))}</td>`;
+          }
+          html += `</tr>`;
+        }
+        html += `</tbody>`;
+        html += `</table>`;
+      }
+      if (part.truncated) {
+        html += `<div class="output-table-no-results">${escapeHtml(part.truncated)}</div>`;
+      }
+      html += `</div>`;
+    }
+  }
+
+  return html;
+}
+
+function parseTuple(str) {
+  const elements = [];
+  let current = "";
+  let inQuotes = false;
+  let escape = false;
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (escape) {
+      current += char;
+      escape = false;
+    } else if (char === '\\') {
+      escape = true;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+      current += char;
+    } else if (char === ',' && !inQuotes) {
+      elements.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  elements.push(current.trim());
+  return elements;
+}
+
+function cleanValue(val) {
+  if (val.startsWith('"') && val.endsWith('"')) {
+    return val.slice(1, -1).replace(/\\(.)/g, (match, g1) => {
+      switch (g1) {
+        case "n": return "\n";
+        case "t": return "\t";
+        case '"': return '"';
+        case '\\': return '\\';
+        default: return g1;
+      }
+    });
+  }
+  return val;
+}
 
 // Load the Wasm module, then run the initial program.
 loadWasm()
   .then((exports) => {
     wasm = exports;
+
+    // Resolve and set version, build, and license metadata from Wasm
+    try {
+      const versionStr = decoder.decode(
+        new Uint8Array(wasm.memory.buffer, wasm.versionPtr(), wasm.versionLen()),
+      );
+      const commitStr = decoder.decode(
+        new Uint8Array(wasm.memory.buffer, wasm.commitPtr(), wasm.commitLen()),
+      );
+      const zigStr = decoder.decode(
+        new Uint8Array(wasm.memory.buffer, wasm.zigVersionPtr(), wasm.zigVersionLen()),
+      );
+      const licenseStr = decoder.decode(
+        new Uint8Array(wasm.memory.buffer, wasm.licensePtr(), wasm.licenseLen()),
+      );
+
+      document.getElementById("about-version").textContent = `${versionStr} (Zig ${zigStr})`;
+      document.getElementById("about-build").textContent = `Wasm32 (${commitStr})`;
+      document.getElementById("about-license").textContent = licenseStr;
+    } catch (e) {
+      // Fallback if functions are missing
+    }
+
     setStatus("ready", "ok");
     execute();
   })
   .catch((err) => {
     outputEl.textContent = `Failed to load zodd.wasm: ${err}\n\nBuild it with: make web`;
-    outputEl.className = "error";
+    outputEl.classList.add("error");
     setStatus("load failed", "error");
   });

@@ -83,4 +83,4 @@ const again = run("f(1). g(X) :- f(X). ?- g(1).");
 expect(again.status === 0, `repeat status is ${again.status}`);
 expect(again.out.includes("(1)"), "repeat run output missing");
 
-console.log("Wasm smoke test OK");
+console.log("Wasm smoke test SUCCESS");
