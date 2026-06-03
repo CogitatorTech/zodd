@@ -54,6 +54,7 @@ const join = @import("zodd/join.zig");
 const extend = @import("zodd/extend.zig");
 const index_mod = @import("zodd/index.zig");
 const aggregate_mod = @import("zodd/aggregate.zig");
+const frontend = @import("zodd/frontend/program.zig");
 
 /// Immutable, sorted, deduplicated relation.
 pub const Relation = relation.Relation;
@@ -101,6 +102,25 @@ pub const SecondaryIndex = index_mod.SecondaryIndex;
 /// Group-by aggregation with a user-supplied folder.
 pub const aggregate = aggregate_mod.aggregate;
 
+/// High-level Datalog database: parse or build rules, solve, and query.
+pub const Database = frontend.Database;
+
+/// A surface value for the Datalog frontend: an integer or a string.
+pub const Value = frontend.Value;
+
+/// A query result row; decodes columns and formats with `{f}`.
+pub const Row = frontend.Row;
+
+/// Iterator over the rows matching a query pattern.
+pub const RowIterator = frontend.RowIterator;
+
+/// Error set of the Datalog frontend (parsing, analysis, and evaluation).
+pub const FrontendError = frontend.FrontendError;
+
+/// Details for the most recent frontend error: message plus source span or
+/// rule index.
+pub const Diagnostic = frontend.Diagnostic;
+
 test {
     @import("std").testing.refAllDecls(@This());
     // Pull the modules themselves into test scope so their inline `test`
@@ -112,4 +132,15 @@ test {
     _ = extend;
     _ = index_mod;
     _ = aggregate_mod;
+    _ = @import("zodd/frontend/dyntuple.zig");
+    _ = @import("zodd/frontend/interner.zig");
+    _ = @import("zodd/frontend/ast.zig");
+    _ = @import("zodd/frontend/builder.zig");
+    _ = @import("zodd/frontend/analyze.zig");
+    _ = @import("zodd/frontend/join_runtime.zig");
+    _ = @import("zodd/frontend/plan.zig");
+    _ = @import("zodd/frontend/evaluator.zig");
+    _ = @import("zodd/frontend/token.zig");
+    _ = @import("zodd/frontend/parser.zig");
+    _ = frontend;
 }

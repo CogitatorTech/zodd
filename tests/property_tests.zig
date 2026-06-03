@@ -723,3 +723,156 @@ test "property: aggregate count matches naive count" {
         .{ .num_runs = 30, .seed = 0xbeefbabe },
     );
 }
+
+test "property: frontend transitive closure matches a hand-written loop" {
+    const EdgeList = []const struct { u64, u64 };
+    const edge_gen = gen.list(
+        struct { u64, u64 },
+        gen.tuple2(u64, u64, gen.intRange(u64, 0, 8), gen.intRange(u64, 0, 8)),
+        0,
+        15,
+    );
+
+    try minish.check(
+        testing.allocator,
+        edge_gen,
+        struct {
+            fn prop(edges: EdgeList) !void {
+                const allocator = testing.allocator;
+
+                // Frontend evaluation.
+                var db = zodd.Database.init(allocator);
+                defer db.deinit();
+                for (edges) |edge| {
+                    try db.addFact("edge", &.{ .{ .int = edge[0] }, .{ .int = edge[1] } });
+                }
+                try db.run(
+                    \\path(X, Y) :- edge(X, Y).
+                    \\path(X, Z) :- path(X, Y), edge(Y, Z).
+                );
+                try db.solve();
+
+                // Hand-written semi-naive loop over the engine core.
+                const Edge = struct { u64, u64 };
+                var base = try zodd.Relation(Edge).fromSlice(allocator, edges);
+                defer base.deinit();
+
+                var reachable = zodd.Variable(Edge).init(allocator);
+                defer reachable.deinit();
+                try reachable.insertSlice(base.elements);
+
+                while (try reachable.changed()) {
+                    var batch = std.ArrayListUnmanaged(Edge).empty;
+                    defer batch.deinit(allocator);
+                    for (reachable.recent.elements) |r| {
+                        for (base.elements) |e| {
+                            if (e[0] == r[1]) try batch.append(allocator, .{ r[0], e[1] });
+                        }
+                    }
+                    if (batch.items.len > 0) {
+                        const rel = try zodd.Relation(Edge).fromSlice(allocator, batch.items);
+                        try reachable.insert(rel);
+                    }
+                }
+
+                var expected = try reachable.complete();
+                defer expected.deinit();
+
+                // The frontend result must contain exactly the same pairs.
+                var it = try db.query("path", &.{ null, null });
+                defer it.deinit();
+                var count: usize = 0;
+                while (it.next()) |row| : (count += 1) {
+                    try testing.expect(count < expected.len());
+                    try testing.expectEqual(expected.elements[count][0], row.get(0).int);
+                    try testing.expectEqual(expected.elements[count][1], row.get(1).int);
+                }
+                try testing.expectEqual(expected.len(), count);
+            }
+        }.prop,
+        .{ .num_runs = 40, .seed = 0xda7a106 },
+    );
+}
+
+test "property: frontend query patterns partition the full scan" {
+    const EdgeList = []const struct { u64, u64 };
+    const edge_gen = gen.list(
+        struct { u64, u64 },
+        gen.tuple2(u64, u64, gen.intRange(u64, 0, 6), gen.intRange(u64, 0, 6)),
+        1,
+        12,
+    );
+
+    try minish.check(
+        testing.allocator,
+        edge_gen,
+        struct {
+            fn prop(edges: EdgeList) !void {
+                const allocator = testing.allocator;
+
+                var db = zodd.Database.init(allocator);
+                defer db.deinit();
+                for (edges) |edge| {
+                    try db.addFact("edge", &.{ .{ .int = edge[0] }, .{ .int = edge[1] } });
+                }
+                try db.run("path(X, Y) :- edge(X, Y). path(X, Z) :- path(X, Y), edge(Y, Z).");
+                try db.solve();
+
+                var total: usize = 0;
+                var it = try db.query("path", &.{ null, null });
+                defer it.deinit();
+                while (it.next()) |_| total += 1;
+
+                // Summing bound-first-column queries over the domain must
+                // reproduce the full scan count.
+                var sum: usize = 0;
+                var source: u64 = 0;
+                while (source <= 6) : (source += 1) {
+                    var bound = try db.query("path", &.{ zodd.Value{ .int = source }, null });
+                    defer bound.deinit();
+                    while (bound.next()) |row| {
+                        try testing.expectEqual(source, row.get(0).int);
+                        sum += 1;
+                    }
+                }
+                try testing.expectEqual(total, sum);
+            }
+        }.prop,
+        .{ .num_runs = 40, .seed = 0x90a7f00d },
+    );
+}
+
+test "property: interner round-trips mixed values" {
+    const Values = []const u64;
+    try minish.check(
+        testing.allocator,
+        gen.list(u64, gen.intRange(u64, 0, 1_000_000), 1, 30),
+        struct {
+            fn prop(values: Values) !void {
+                const allocator = testing.allocator;
+
+                var db = zodd.Database.init(allocator);
+                defer db.deinit();
+
+                // Each value is stored both as an integer and as a string.
+                for (values) |value| {
+                    var buffer: [32]u8 = undefined;
+                    const name = try std.fmt.bufPrint(&buffer, "s{d}", .{value});
+                    try db.addFact("item", &.{ .{ .int = value }, .{ .str = name } });
+                }
+                try db.solve();
+
+                for (values) |value| {
+                    var buffer: [32]u8 = undefined;
+                    const name = try std.fmt.bufPrint(&buffer, "s{d}", .{value});
+                    var it = try db.query("item", &.{ .{ .int = value }, null });
+                    defer it.deinit();
+                    const row = it.next().?;
+                    try testing.expectEqual(value, row.get(0).int);
+                    try testing.expectEqualStrings(name, row.get(1).str);
+                }
+            }
+        }.prop,
+        .{ .num_runs = 30, .seed = 0x17e4aed },
+    );
+}

@@ -79,6 +79,7 @@ For example:
 - Implements semi-naive evaluation for efficient recursive query processing
 - Uses immutable, sorted, and deduplicated relations as core data structures
 - Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
+- Includes a Datalog frontend with a parser, a builder API, stratified negation, and aggregates
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 
@@ -171,6 +172,44 @@ pub fn main() !void {
     std.debug.print("Reachable pairs: {d}\n", .{result.len()});
 }
 ```
+
+#### Datalog Frontend
+
+Alternatively, the same program can be written in textual Datalog using the frontend.
+The frontend parses facts and rules, checks them (safety, arity, and stratification), and evaluates them with the same semi-naive engine.
+It supports recursive rules, negation (`not`), aggregates (`count`, `sum`, `min`, and `max`), and integer or string constants.
+
+```zig
+const std = @import("std");
+const zodd = @import("zodd");
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+
+    try db.run(
+        \\edge(1, 2).
+        \\edge(2, 3).
+        \\edge(3, 4).
+        \\reachable(X, Y) :- edge(X, Y).
+        \\reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
+    );
+    try db.solve();
+
+    // ?- reachable(1, X).
+    var it = try db.query("reachable", &.{ zodd.Value{ .int = 1 }, null });
+    defer it.deinit();
+    while (it.next()) |row| {
+        std.debug.print("{f}\n", .{row});
+    }
+}
+```
+
+Rules can also be constructed programmatically without source text through `db.builder()`; see the [API documentation](https://CogitatorTech.github.io/zodd/) and [e7_datalog_frontend.zig](examples/e7_datalog_frontend.zig).
 
 ---
 

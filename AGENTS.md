@@ -41,6 +41,9 @@ Priorities, in order:
 - `src/zodd/extend.zig`: Leaper-based extension primitives (`ExtendWith`, `FilterAnti`, `ExtendAnti`, `extendInto`).
 - `src/zodd/index.zig`: Indexes for keyed lookups.
 - `src/zodd/aggregate.zig`: Group-by and aggregation operations.
+- `src/zodd/frontend/`: Datalog frontend. `program.zig` is the public `Database` API; `token.zig` and `parser.zig` parse textual Datalog;
+  `ast.zig` and `builder.zig` hold the shared IR and the programmatic builder; `analyze.zig` checks safety and stratification;
+  `dyntuple.zig`, `plan.zig`, `join_runtime.zig`, and `evaluator.zig` compile and run rules on the engine core.
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`).
 - `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e6_dependency_resolution.zig`) built as executables via
   `build.zig`.
