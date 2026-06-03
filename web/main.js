@@ -82,7 +82,7 @@ sg(X, Y) :- parent(X, P), parent(Y, Q), sg(P, Q).
   },
 ];
 
-// --- WASM glue ---------------------------------------------------------------
+// --- Wasm glue ---------------------------------------------------------------
 
 let wasm = null;
 const encoder = new TextEncoder();
@@ -109,8 +109,8 @@ function runProgram(source) {
   let ptr = 0;
   if (sourceBytes.length > 0) {
     ptr = wasm.alloc(sourceBytes.length);
-    if (ptr === 0) throw new Error("WASM allocation failed");
-    // Views must be created after each call into WASM: memory growth
+    if (ptr === 0) throw new Error("Wasm allocation failed");
+    // Views must be created after each call into Wasm: memory growth
     // detaches previously created typed arrays.
     new Uint8Array(wasm.memory.buffer, ptr, sourceBytes.length).set(sourceBytes);
   }
@@ -299,7 +299,7 @@ dividerEl.addEventListener("pointerdown", (event) => {
   setSource(EXAMPLES[0].source);
 })();
 
-// Load the WASM module, then run the initial program.
+// Load the Wasm module, then run the initial program.
 loadWasm()
   .then((exports) => {
     wasm = exports;

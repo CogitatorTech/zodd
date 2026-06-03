@@ -1,6 +1,6 @@
-//! # WASM Playground Wrapper
+//! # Web Frontend Wasm Wrapper
 //!
-//! The module exposes the Datalog frontend to the browser playground over a
+//! The module exposes the Datalog frontend to the web frontend over a
 //! small C ABI. JavaScript writes UTF-8 source into linear memory with
 //! `alloc`, calls `run`, and reads the rendered output back through
 //! `outputPtr` and `outputLen`.

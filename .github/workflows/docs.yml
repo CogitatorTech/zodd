@@ -9,17 +9,19 @@ on:
       - 'v*'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-  deploy-site:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install Zig
@@ -27,30 +29,39 @@ jobs:
         with:
           version: '0.16.0'
 
-      - name: Install System Dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y make
 
-      - name: Generate Documentation
+      - name: Generate documentation
         run: make docs
 
-      - name: Build WASM Playground
+      - name: Build Wasm playground
         run: zig build wasm
 
-      - name: Assemble Site
+      - name: Assemble site
         run: |
           mkdir -p site/api
           cp web/index.html web/main.js web/style.css web/logo.svg site/
           cp zig-out/web/zodd.wasm site/
           cp -r docs/api/* site/api/
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Configure GitHub pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          publish_branch: gh-pages
-          user_name: ${{ github.actor }}
-          user_email: ${{ github.actor }}@users.noreply.github.com
-          commit_message: "docs: Deploy website from ${{ github.sha }} by ${{ github.actor }}"
+          path: ./site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub pages
+        id: deployment
+        uses: actions/deploy-pages@v4

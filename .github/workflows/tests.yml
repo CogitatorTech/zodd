@@ -56,7 +56,7 @@ jobs:
       - name: Run tests
         run: zig build test --summary all
 
-      - name: Run WASM smoke test
+      - name: Run Wasm smoke test
         if: runner.os == 'Linux'
         run: |
           zig build wasm

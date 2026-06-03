@@ -68,17 +68,17 @@ lint: ## Check code style and formatting of Zig files
 	@echo "Running code style checks..."
 	$(ZIG) fmt --check $(SRC_DIR) $(TEST_DIR) web/zodd_wasm.zig
 
-web: ## Build the WASM playground module and stage it under web/
-	@echo "Building the WASM playground module..."
+web: ## Build the web frontend Wasm module and stage it under web/
+	@echo "Building the web frontend Wasm module..."
 	$(ZIG) build wasm
 	cp $(BUILD_DIR)/web/zodd.wasm web/zodd.wasm
 
-web-serve: web ## Build and serve the playground at http://localhost:8000
+web-serve: web ## Build and serve the web frontend at http://localhost:8000
 	@echo "Serving web/ at http://localhost:8000 ..."
 	python3 -m http.server 8000 --directory web
 
-web-test: web ## Run the Node.js smoke test against the WASM module
-	@echo "Running the WASM smoke test..."
+web-test: web ## Run the Node.js smoke test against the Wasm module
+	@echo "Running the Wasm smoke test..."
 	node web/smoke_test.mjs
 
 format: ## Format Zig files

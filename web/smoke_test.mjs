@@ -1,4 +1,4 @@
-// Smoke test for the playground WASM module. Run with `make web-test`
+// Smoke test for the web frontend Wasm module. Run with `make web-test`
 // (which builds the module and stages it as web/zodd.wasm first).
 
 import { readFile } from "node:fs/promises";
@@ -83,4 +83,4 @@ const again = run("f(1). g(X) :- f(X). ?- g(1).");
 expect(again.status === 0, `repeat status is ${again.status}`);
 expect(again.out.includes("(1)"), "repeat run output missing");
 
-console.log("WASM smoke test OK");
+console.log("Wasm smoke test OK");

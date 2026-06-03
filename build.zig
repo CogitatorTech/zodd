@@ -112,7 +112,7 @@ pub fn build(b: *std.Build) void {
         }
     } else |_| {}
 
-    // WASM playground (see web/)
+    // Web frontend (see web/)
     {
         const wasm_target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
@@ -147,7 +147,7 @@ pub fn build(b: *std.Build) void {
         wasm_exe.rdynamic = true; // Export the `export fn` symbols.
 
         const install_wasm = b.addInstallFile(wasm_exe.getEmittedBin(), "web/zodd.wasm");
-        const wasm_step = b.step("wasm", "Build the browser playground WASM module");
+        const wasm_step = b.step("wasm", "Build the web frontend Wasm module");
         wasm_step.dependOn(&install_wasm.step);
     }
 

@@ -45,12 +45,12 @@ Priorities, in order:
   `ast.zig` and `builder.zig` hold the shared IR and the programmatic builder; `analyze.zig` checks safety and stratification;
   `dyntuple.zig`, `plan.zig`, `join_runtime.zig`, and `evaluator.zig` compile and run rules on the engine core.
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`, `frontend_tests.zig`).
-- `web/`: Browser playground. `zodd_wasm.zig` is the WASM wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
+- `web/`: Web frontend. `zodd_wasm.zig` is the Wasm wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
   `smoke_test.mjs` is the Node.js smoke test run by `make web-test`.
 - `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e6_dependency_resolution.zig`) built as executables via
   `build.zig`.
-- `.github/workflows/`: CI workflows (`tests.yml` for unit and integration tests plus the WASM smoke test, `docs.yml` for deploying the website:
-  the playground at the site root and API docs under `/api`).
+- `.github/workflows/`: CI workflows (`tests.yml` for unit and integration tests plus the Wasm smoke test, `docs.yml` for deploying the website:
+  the web frontend at the site root and API docs under `/api`).
 - `build.zig` / `build.zig.zon`: Zig build configuration and package metadata.
 - `Makefile`: GNU Make wrapper around `zig build` targets.
 - `docs/`: Generated API docs land in `docs/api/` (produced by `make docs`).
@@ -143,7 +143,7 @@ Before coding:
 
 1. Identify which module(s) the change touches (`relation`, `variable`, `iteration`, `join`, `extend`, `index`, `aggregate`, or `context`).
 2. Consider whether a new join or extension needs a matching index or anti-variant.
-3. Check whether the change is public-API-visible (i.e. re-exported from `src/lib.zig`); if so, treat it as a breaking or additive API change
+3. Check whether the change is public-API-visible (like re-exported from `src/lib.zig`); if so, treat it as a breaking or additive API change
    deliberately.
 4. Check cross-platform implications, especially for anything that touches the filesystem, timing, or OS-specific types.
 
