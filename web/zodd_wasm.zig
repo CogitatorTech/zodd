@@ -12,6 +12,8 @@
 
 const std = @import("std");
 const zodd = @import("zodd");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
 
 const allocator = std.heap.wasm_allocator;
 
@@ -160,4 +162,46 @@ fn printRows(writer: *std.Io.Writer, it: *zodd.RowIterator, printed: *usize) !bo
         printed.* += 1;
     }
     return true;
+}
+
+export fn versionPtr() [*]const u8 {
+    return build_options.version.ptr;
+}
+
+export fn versionLen() usize {
+    return build_options.version.len;
+}
+
+export fn commitPtr() [*]const u8 {
+    return build_options.commit.ptr;
+}
+
+export fn commitLen() usize {
+    return build_options.commit.len;
+}
+
+const target_name = @tagName(builtin.cpu.arch) ++ " " ++ @tagName(builtin.os.tag);
+
+export fn zigVersionPtr() [*]const u8 {
+    return builtin.zig_version_string.ptr;
+}
+
+export fn zigVersionLen() usize {
+    return builtin.zig_version_string.len;
+}
+
+export fn targetPtr() [*]const u8 {
+    return target_name.ptr;
+}
+
+export fn targetLen() usize {
+    return target_name.len;
+}
+
+export fn licensePtr() [*]const u8 {
+    return "MIT".ptr;
+}
+
+export fn licenseLen() usize {
+    return "MIT".len;
 }

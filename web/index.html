@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Zodd Web Frontend</title>
+  <title>Zodd Datalog Engine</title>
   <meta name="description" content="Run Datalog programs in the browser with Zodd Datalog engine.">
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="stylesheet" href="style.css">
@@ -12,33 +12,64 @@
   <header>
     <div class="brand">
       <img src="logo.svg" alt="Zodd logo" width="28" height="28">
-      <h1>Zodd Web Frontend</h1>
+      <h1>Zodd Datalog Engine</h1>
     </div>
     <nav>
       <a href="api/">API Docs</a>
       <a href="https://github.com/CogitatorTech/zodd">GitHub</a>
+      <button id="about">About</button>
+      <button id="theme" title="Toggle the color theme">&#9728;</button>
     </nav>
   </header>
 
   <div class="toolbar">
-    <label for="examples">Example:</label>
-    <select id="examples"></select>
-    <button id="run" title="Run the program (Ctrl+Enter)">Run</button>
-    <button id="share" title="Copy a link to this program">Share</button>
-    <span id="status"></span>
+    <div class="toolbar-group">
+      <label for="examples">Example:</label>
+      <select id="examples"></select>
+    </div>
+
+    <div class="toolbar-group">
+      <button id="load" title="Load a Datalog script from filesystem">Load</button>
+      <button id="download" title="Download editor content to as a Datalog script">Download</button>
+      <button id="share" title="Copy a permalink for sharing">Share</button>
+    </div>
+
+    <div class="toolbar-group">
+      <button id="run" title="Execute program (Ctrl+Enter)">Execute</button>
+      <button id="clear" title="Clear editor content">Clear</button>
+    </div>
+
+    <input id="file" type="file" accept=".dl,.datalog,.pl,.txt" hidden>
+    <div id="status-container">
+      <span id="status"></span>
+    </div>
   </div>
 
   <main id="split">
     <section class="pane editor-pane">
-      <div class="editor">
-        <pre id="highlight" aria-hidden="true"><code id="highlight-code"></code></pre>
-        <textarea id="source" spellcheck="false" autocomplete="off"
-          autocapitalize="off" wrap="off" aria-label="Datalog source"></textarea>
+      <div class="editor-container">
+        <div class="editor-gutter" aria-hidden="true">
+          <div class="editor-linenos" id="linenos">1</div>
+        </div>
+        <div class="editor">
+          <pre id="highlight" aria-hidden="true"><code id="highlight-code"></code></pre>
+          <textarea id="source" spellcheck="false" autocomplete="off"
+            autocapitalize="off" wrap="off" aria-label="Datalog source"></textarea>
+        </div>
       </div>
     </section>
     <div id="divider" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <section class="pane output-pane">
-      <pre id="output">Loading Wasm module...</pre>
+      <div class="output-header">
+        <span id="telemetry-info"></span>
+        <div class="view-toggle">
+          <button id="view-text" class="active" title="Show raw text output">Text</button>
+          <button id="view-table" title="Show tabular results">Table</button>
+        </div>
+        <button id="clear-output" title="Clear output console">Clear Output</button>
+      </div>
+      <pre id="output"><span class="loader-container"><span class="loader-spinner"></span>Initializing WebAssembly Engine...</span></pre>
+      <div id="output-table" class="hidden"></div>
     </section>
   </main>
 
@@ -46,6 +77,29 @@
     <span>Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run.
       Programs with <code>?-</code> queries answer them; otherwise all derived relations are printed.</span>
   </footer>
+
+  <dialog id="about-dialog">
+    <h2>About Zodd</h2>
+    <div class="about-content">
+      <p>Zodd is a small embeddable Datalog engine in Zig.
+      </p>
+
+      <div class="about-info">
+        <div class="about-row"><span>Version</span><span id="about-version">--</span></div>
+        <div class="about-row"><span>Build</span><span id="about-build">--</span></div>
+        <div class="about-row"><span>License</span><span id="about-license">--</span></div>
+      </div>
+
+      <p class="about-support">
+        If you enjoy Zodd, please consider supporting the project by giving it a
+        <a href="https://github.com/CogitatorTech/zodd" rel="noopener" target="_blank">star</a>
+        and making a
+        <a href="https://github.com/sponsors/habedi" rel="noopener" target="_blank">donation</a>
+        to help keep development going.
+      </p>
+    </div>
+    <button id="about-close">Close</button>
+  </dialog>
 
   <script src="main.js"></script>
 </body>

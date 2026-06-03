@@ -132,12 +132,19 @@ pub fn build(b: *std.Build) void {
         });
         zodd_wasm_mod.addImport("ordered", ordered_wasm_dep.module("ordered"));
 
+        const build_options = b.addOptions();
+        const version = getVersion(b);
+        build_options.addOption([]const u8, "version", version);
+        const commit = getGitInfo(b);
+        build_options.addOption([]const u8, "commit", commit);
+
         const wasm_mod = b.createModule(.{
             .root_source_file = b.path("web/zodd_wasm.zig"),
             .target = wasm_target,
             .optimize = wasm_optimize,
         });
         wasm_mod.addImport("zodd", zodd_wasm_mod);
+        wasm_mod.addImport("build_options", build_options.createModule());
 
         const wasm_exe = b.addExecutable(.{
             .name = "zodd",
@@ -166,4 +173,30 @@ pub fn build(b: *std.Build) void {
     });
 
     docs_step.dependOn(&install_docs.step);
+}
+
+fn getVersion(b: *std.Build) []const u8 {
+    const zon_content = b.build_root.handle.readFileAlloc(b.graph.io, "build.zig.zon", b.allocator, .unlimited) catch return "unknown";
+    if (std.mem.indexOf(u8, zon_content, ".version = \"")) |index| {
+        const start = index + ".version = \"".len;
+        if (std.mem.indexOfScalarPos(u8, zon_content, start, '"')) |end| {
+            return zon_content[start..end];
+        }
+    }
+    return "unknown";
+}
+
+fn getGitInfo(b: *std.Build) []const u8 {
+    var code1: u8 = 0;
+    const branch = b.runAllowFail(&[_][]const u8{ "git", "branch", "--show-current" }, &code1, .ignore) catch "";
+    var code2: u8 = 0;
+    const hash = b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--short", "HEAD" }, &code2, .ignore) catch "";
+
+    const clean_branch = std.mem.trim(u8, branch, " \t\r\n");
+    const clean_hash = std.mem.trim(u8, hash, " \t\r\n");
+
+    if (clean_branch.len > 0 and clean_hash.len > 0) {
+        return b.fmt("{s}@{s}", .{ clean_branch, clean_hash });
+    }
+    return "unknown";
 }
