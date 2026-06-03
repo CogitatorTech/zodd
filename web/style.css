@@ -329,7 +329,11 @@ main {
   pointer-events: none;
   color: var(--fg);
   background: var(--bg);
-  scrollbar-width: none;
+  overflow: hidden; /* Prevent double scrollbars; positioning is synced via JS */
+}
+
+.editor pre::-webkit-scrollbar {
+  display: none; /* Hide WebKit scrollbars */
 }
 
 .editor textarea {

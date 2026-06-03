@@ -465,7 +465,38 @@ function decodeProgram(encoded) {
   return decoder.decode(bytes);
 }
 
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.top = "0";
+      textarea.style.left = "0";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (successful) {
+        resolve();
+      } else {
+        reject(new Error("Copy command failed"));
+      }
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 // --- UI wiring ------------------------------------------------------------------
+
+let activeErrorLine = null;
+
 
 const sourceEl = document.getElementById("source");
 const highlightEl = document.getElementById("highlight");
@@ -492,15 +523,20 @@ const dividerEl = document.getElementById("divider");
 const editorPane = document.querySelector(".editor-pane");
 
 function syncHighlight(errorLine = null) {
+  activeErrorLine = errorLine;
   // A trailing newline keeps the backdrop the same height as the textarea.
-  highlightCodeEl.innerHTML = highlight(sourceEl.value, errorLine) + "\n";
+  highlightCodeEl.innerHTML = highlight(sourceEl.value, activeErrorLine) + "\n";
+  syncScroll();
+  updateLineNumbers();
+}
+
+function syncScroll() {
   highlightEl.scrollTop = sourceEl.scrollTop;
   highlightEl.scrollLeft = sourceEl.scrollLeft;
   const gutter = document.querySelector(".editor-gutter");
   if (gutter) {
     gutter.scrollTop = sourceEl.scrollTop;
   }
-  updateLineNumbers();
 }
 
 function updateLineNumbers() {
@@ -516,6 +552,8 @@ function updateLineNumbers() {
 
 function setSource(text) {
   sourceEl.value = text;
+  sourceEl.scrollTop = 0;
+  sourceEl.scrollLeft = 0;
   syncHighlight(null);
   localStorage.setItem("zodd-source", text);
 }
@@ -568,15 +606,9 @@ function share() {
   const url = new URL(window.location.href);
   url.hash = "program=" + encodeProgram(sourceEl.value);
   history.replaceState(null, "", url);
-  const copied = navigator.clipboard?.writeText(url.href);
-  if (copied) {
-    copied.then(
-      () => setStatus("link copied", "ok"),
-      () => setStatus("link in address bar", "ok"),
-    );
-  } else {
-    setStatus("link in address bar", "ok");
-  }
+  copyToClipboard(url.href)
+    .then(() => setStatus("link copied", "ok"))
+    .catch(() => setStatus("link in address bar", "ok"));
 }
 
 // Examples dropdown.
@@ -595,9 +627,18 @@ sourceEl.addEventListener("input", () => {
   syncHighlight(null);
   localStorage.setItem("zodd-source", sourceEl.value);
 });
-sourceEl.addEventListener("scroll", () => syncHighlight(null));
+sourceEl.addEventListener("scroll", syncScroll);
 sourceEl.addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+  if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    const start = sourceEl.selectionStart;
+    const end = sourceEl.selectionEnd;
+    const val = sourceEl.value;
+    sourceEl.value = val.substring(0, start) + "    " + val.substring(end);
+    sourceEl.selectionStart = sourceEl.selectionEnd = start + 4;
+    syncHighlight(null);
+    localStorage.setItem("zodd-source", sourceEl.value);
+  } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     event.preventDefault();
     execute();
   }
@@ -676,11 +717,14 @@ dividerEl.addEventListener("pointerdown", (event) => {
   };
   const onUp = () => {
     dividerEl.classList.remove("dragging");
+    dividerEl.releasePointerCapture(event.pointerId);
     dividerEl.removeEventListener("pointermove", onMove);
     dividerEl.removeEventListener("pointerup", onUp);
+    dividerEl.removeEventListener("pointercancel", onUp);
   };
   dividerEl.addEventListener("pointermove", onMove);
   dividerEl.addEventListener("pointerup", onUp);
+  dividerEl.addEventListener("pointercancel", onUp);
 });
 
 // Initial program: a permalink if present, the autosaved progress if available, or the first example otherwise.
@@ -760,7 +804,7 @@ outputTableEl.addEventListener("click", (event) => {
   }
 
   const tsvText = tsvLines.join("\n");
-  navigator.clipboard.writeText(tsvText).then(() => {
+  copyToClipboard(tsvText).then(() => {
     const originalText = btn.textContent;
     btn.textContent = "Copied!";
     btn.style.borderColor = "var(--ok)";
@@ -922,6 +966,7 @@ function parseOutputToTables(text) {
 }
 
 function parseTuple(str) {
+  if (!str.trim()) return [];
   const elements = [];
   let current = "";
   let inQuotes = false;
