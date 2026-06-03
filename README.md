@@ -22,6 +22,8 @@ A small embeddable Datalog engine in Zig
 
 Zodd is a small [Datalog](https://en.wikipedia.org/wiki/Datalog) engine written in pure Zig.
 
+**You can try it in your browser [here](https://CogitatorTech.github.io/zodd/).**
+
 ### What is Datalog?
 
 Datalog is a declarative logic programming language for deductive databases.
@@ -173,47 +175,6 @@ pub fn main() !void {
     std.debug.print("Reachable pairs: {d}\n", .{result.len()});
 }
 ```
-
-#### Datalog Frontend
-
-Alternatively, the same program can be written in textual Datalog using the frontend.
-The frontend parses facts and rules, checks them (safety, arity, and stratification), and evaluates them with the same semi-naive engine.
-It supports recursive rules, negation (`not`), aggregates (`count`, `sum`, `min`, and `max`), and integer or string constants.
-
-```zig
-const std = @import("std");
-const zodd = @import("zodd");
-
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var db = zodd.Database.init(allocator);
-    defer db.deinit();
-
-    try db.run(
-        \\edge(1, 2).
-        \\edge(2, 3).
-        \\edge(3, 4).
-        \\reachable(X, Y) :- edge(X, Y).
-        \\reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
-    );
-    try db.solve();
-
-    // ?- reachable(1, X).
-    var it = try db.query("reachable", &.{ zodd.Value{ .int = 1 }, null });
-    defer it.deinit();
-    while (it.next()) |row| {
-        std.debug.print("{f}\n", .{row});
-    }
-}
-```
-
-Rules can also be constructed programmatically without source text through `db.builder()`; see the [API documentation](https://CogitatorTech.github.io/zodd/api/) and [e7_datalog_frontend.zig](examples/e7_datalog_frontend.zig).
-
-You can try the Datalog frontend in the browser with the [web frontend](https://CogitatorTech.github.io/zodd/), which runs Zodd compiled to WebAssembly.
-Its sources live in the [web](web) directory; `make web-serve` builds and serves it locally.
 
 ---
 
