@@ -9,7 +9,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/zodd/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/CogitatorTech/zodd/blob/main/LICENSE)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/zodd/tree/main/examples)
-[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/api/)
+[![API Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://cogitatortech.github.io/zodd/api/#zodd.lib)
 [![Web Frontend](https://img.shields.io/badge/web_frontend-try-orange?style=flat&labelColor=282c34&logo=webassembly)](https://CogitatorTech.github.io/zodd/)
 [![Zig](https://img.shields.io/badge/zig-0.16.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/release/CogitatorTech/zodd.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/releases/latest)
@@ -180,7 +180,7 @@ pub fn main() !void {
 
 ### Documentation
 
-You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/api/).
+You can find the API documentation for the latest release of Zodd [here](https://cogitatortech.github.io/zodd/api/#zodd.lib).
 
 ### Examples
 

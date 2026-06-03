@@ -52,7 +52,7 @@ const variable = @import("zodd/variable.zig");
 const iteration = @import("zodd/iteration.zig");
 const join = @import("zodd/join.zig");
 const extend = @import("zodd/extend.zig");
-const index_mod = @import("zodd/secondary_index.zig");
+const index_mod = @import("zodd/index.zig");
 const aggregate_mod = @import("zodd/aggregate.zig");
 const frontend = @import("zodd/frontend/program.zig");
 
