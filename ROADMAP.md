@@ -30,7 +30,7 @@ This document outlines the features implemented in Zodd and the future goals for
 - [ ] CLI
 - [ ] Streaming input
 - [x] Rule DSL (textual Datalog frontend with a parser, a builder API, stratified negation, and aggregates)
-- [ ] Query planner
+- [x] Query planner
 - [ ] Magic sets
 
 ### Development and Testing

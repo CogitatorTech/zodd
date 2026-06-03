@@ -72,6 +72,7 @@ web: ## Build the web frontend Wasm module and stage it under web/
 	@echo "Building the web frontend Wasm module..."
 	$(ZIG) build wasm
 	cp $(BUILD_DIR)/web/zodd.wasm web/zodd.wasm
+	cp -f logo.svg web/logo.svg
 
 web-serve: web ## Build and serve the web frontend at http://localhost:8085
 	@echo "Serving web/ at http://localhost:8085 ..."

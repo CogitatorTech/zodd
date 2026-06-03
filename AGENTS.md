@@ -33,7 +33,7 @@ Priorities, in order:
 
 ## Repository Layout
 
-- `src/lib.zig`: Public API entry point. Re-exports `Relation`, `Variable`, `Iteration`, `ExecutionContext`, join helpers, and extend primitives.
+- `src/lib.zig`: Public API entry point. Re-exports `Relation`, `Variable`, `Iteration`, `Database`, join helpers, and extend primitives.
 - `src/zodd/relation.zig`: Immutable `Relation` type (sorted, deduplicated tuples).
 - `src/zodd/variable.zig`: Mutable `Variable` type for fixed-point iteration, plus the `gallop` search helper.
 - `src/zodd/iteration.zig`: `Iteration` driver for semi-naive evaluation.
@@ -47,7 +47,7 @@ Priorities, in order:
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`, `frontend_tests.zig`).
 - `web/`: Web frontend. `zodd_wasm.zig` is the Wasm wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
   `smoke_test.mjs` is the Node.js smoke test run by `make web-test`.
-- `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e6_dependency_resolution.zig`) built as executables via
+- `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e7_datalog_frontend.zig`) built as executables via
   `build.zig`.
 - `.github/workflows/`: CI workflows (`tests.yml` for unit and integration tests plus the Wasm smoke test, `docs.yml` for deploying the website:
   the web frontend at the site root and API docs under `/api`).
@@ -95,7 +95,7 @@ Please do not add further dependencies without prior discussion.
 - Zig version: 0.16.0 (as declared in `build.zig.zon` and the Makefile's `ZIG_LOCAL` path). CI pins the version declared in `build.zig.zon`.
 - Formatting is enforced by `zig fmt`. Run `make format` before committing.
 - Naming follows Zig standard-library conventions: `camelCase` for functions (e.g. `joinInto`, `extendInto`, `fromSlice`), `snake_case` for local
-  variables and struct fields, `PascalCase` for types and structs (e.g. `Relation`, `Variable`, `ExecutionContext`), and `SCREAMING_SNAKE_CASE` for
+  variables and struct fields, `PascalCase` for types and structs (e.g. `Relation`, `Variable`, `Database`), and `SCREAMING_SNAKE_CASE` for
   top-level compile-time constants.
 
 ## Required Validation
@@ -141,7 +141,7 @@ Good first tasks:
 
 Before coding:
 
-1. Identify which module(s) the change touches (`relation`, `variable`, `iteration`, `join`, `extend`, `index`, `aggregate`, or `context`).
+1. Identify which module(s) the change touches (`relation`, `variable`, `iteration`, `join`, `extend`, `index`, `aggregate`, or `database`).
 2. Consider whether a new join or extension needs a matching index or anti-variant.
 3. Check whether the change is public-API-visible (like re-exported from `src/lib.zig`); if so, treat it as a breaking or additive API change
    deliberately.

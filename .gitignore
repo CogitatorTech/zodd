@@ -102,3 +102,4 @@ core.*
 .codex
 zig-pkg/
 web/zodd.wasm
+web/logo.svg

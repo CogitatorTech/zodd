@@ -43,7 +43,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p site/api
-          cp web/index.html web/main.js web/style.css web/logo.svg site/
+          cp web/index.html web/main.js web/style.css logo.svg site/
           cp zig-out/web/zodd.wasm site/
           cp -r docs/api/* site/api/
 
