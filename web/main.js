@@ -505,6 +505,7 @@ function syncHighlight(errorLine = null) {
   highlightCodeEl.innerHTML = highlight(sourceEl.value, activeErrorLine) + "\n";
   syncScroll();
   updateLineNumbers();
+  updateDropdownSelection();
 }
 
 function syncScroll() {
@@ -525,6 +526,23 @@ function updateLineNumbers() {
     numbers += i + "\n";
   }
   el.textContent = numbers;
+}
+
+function updateDropdownSelection() {
+  if (typeof document === "undefined" || !examplesEl) return;
+  const currentSource = sourceEl.value;
+  let matchedIndex = -1;
+  for (let i = 0; i < EXAMPLES.length; i++) {
+    if (EXAMPLES[i].source === currentSource) {
+      matchedIndex = i;
+      break;
+    }
+  }
+  if (matchedIndex !== -1) {
+    examplesEl.value = String(matchedIndex);
+  } else {
+    examplesEl.value = "custom";
+  }
 }
 
 function setSource(text) {
@@ -828,6 +846,13 @@ if (typeof document !== "undefined") {
   editorPane = document.querySelector(".editor-pane");
 
   // Examples dropdown.
+  const customOption = document.createElement("option");
+  customOption.value = "custom";
+  customOption.textContent = "[Custom / Edited]";
+  customOption.disabled = true;
+  customOption.hidden = true;
+  examplesEl.appendChild(customOption);
+
   for (const [index, example] of EXAMPLES.entries()) {
     const option = document.createElement("option");
     option.value = String(index);
