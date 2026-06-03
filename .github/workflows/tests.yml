@@ -55,3 +55,10 @@ jobs:
 
       - name: Run tests
         run: zig build test --summary all
+
+      - name: Run WASM smoke test
+        if: runner.os == 'Linux'
+        run: |
+          zig build wasm
+          cp zig-out/web/zodd.wasm web/zodd.wasm
+          node web/smoke_test.mjs

@@ -44,10 +44,13 @@ Priorities, in order:
 - `src/zodd/frontend/`: Datalog frontend. `program.zig` is the public `Database` API; `token.zig` and `parser.zig` parse textual Datalog;
   `ast.zig` and `builder.zig` hold the shared IR and the programmatic builder; `analyze.zig` checks safety and stratification;
   `dyntuple.zig`, `plan.zig`, `join_runtime.zig`, and `evaluator.zig` compile and run rules on the engine core.
-- `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`).
+- `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`, `frontend_tests.zig`).
+- `web/`: Browser playground. `zodd_wasm.zig` is the WASM wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
+  `smoke_test.mjs` is the Node.js smoke test run by `make web-test`.
 - `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e6_dependency_resolution.zig`) built as executables via
   `build.zig`.
-- `.github/workflows/`: CI workflows (`tests.yml` for unit and integration tests, `docs.yml` for API doc deployment).
+- `.github/workflows/`: CI workflows (`tests.yml` for unit and integration tests plus the WASM smoke test, `docs.yml` for deploying the website:
+  the playground at the site root and API docs under `/api`).
 - `build.zig` / `build.zig.zon`: Zig build configuration and package metadata.
 - `Makefile`: GNU Make wrapper around `zig build` targets.
 - `docs/`: Generated API docs land in `docs/api/` (produced by `make docs`).

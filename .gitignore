@@ -101,3 +101,4 @@ core.*
 .claude/
 .codex
 zig-pkg/
+web/zodd.wasm

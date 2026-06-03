@@ -112,6 +112,45 @@ pub fn build(b: *std.Build) void {
         }
     } else |_| {}
 
+    // WASM playground (see web/)
+    {
+        const wasm_target = b.resolveTargetQuery(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+        });
+        const wasm_optimize: std.builtin.OptimizeMode = .ReleaseSmall;
+
+        // A second zodd module instance bound to the wasm target.
+        const zodd_wasm_mod = b.createModule(.{
+            .root_source_file = b.path("src/lib.zig"),
+            .target = wasm_target,
+            .optimize = wasm_optimize,
+        });
+        const ordered_wasm_dep = b.dependency("ordered", .{
+            .target = wasm_target,
+            .optimize = wasm_optimize,
+        });
+        zodd_wasm_mod.addImport("ordered", ordered_wasm_dep.module("ordered"));
+
+        const wasm_mod = b.createModule(.{
+            .root_source_file = b.path("web/zodd_wasm.zig"),
+            .target = wasm_target,
+            .optimize = wasm_optimize,
+        });
+        wasm_mod.addImport("zodd", zodd_wasm_mod);
+
+        const wasm_exe = b.addExecutable(.{
+            .name = "zodd",
+            .root_module = wasm_mod,
+        });
+        wasm_exe.entry = .disabled; // No _start; the module is a library.
+        wasm_exe.rdynamic = true; // Export the `export fn` symbols.
+
+        const install_wasm = b.addInstallFile(wasm_exe.getEmittedBin(), "web/zodd.wasm");
+        const wasm_step = b.step("wasm", "Build the browser playground WASM module");
+        wasm_step.dependOn(&install_wasm.step);
+    }
+
     // API Documentation
     const docs_step = b.step("docs", "Generate API documentation");
 

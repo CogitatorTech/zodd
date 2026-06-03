@@ -1,4 +1,4 @@
-name: Publish API Documentation
+name: Publish Docs and Web
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 jobs:
-  deploy-docs:
+  deploy-site:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -35,12 +35,22 @@ jobs:
       - name: Generate Documentation
         run: make docs
 
+      - name: Build WASM Playground
+        run: zig build wasm
+
+      - name: Assemble Site
+        run: |
+          mkdir -p site/api
+          cp web/index.html web/main.js web/style.css web/logo.svg site/
+          cp zig-out/web/zodd.wasm site/
+          cp -r docs/api/* site/api/
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/api
+          publish_dir: ./site
           publish_branch: gh-pages
           user_name: ${{ github.actor }}
           user_email: ${{ github.actor }}@users.noreply.github.com
-          commit_message: "docs: Deploy documentation from ${{ github.sha }} by ${{ github.actor }}"
+          commit_message: "docs: Deploy website from ${{ github.sha }} by ${{ github.actor }}"

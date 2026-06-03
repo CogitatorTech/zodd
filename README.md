@@ -9,7 +9,8 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/zodd/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/CogitatorTech/zodd/blob/main/LICENSE)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/zodd/tree/main/examples)
-[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/)
+[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/api/)
+[![Playground](https://img.shields.io/badge/playground-try-orange?style=flat&labelColor=282c34&logo=webassembly)](https://CogitatorTech.github.io/zodd/)
 [![Zig](https://img.shields.io/badge/zig-0.16.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/release/CogitatorTech/zodd.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/releases/latest)
 
@@ -209,13 +210,16 @@ pub fn main() !void {
 }
 ```
 
-Rules can also be constructed programmatically without source text through `db.builder()`; see the [API documentation](https://CogitatorTech.github.io/zodd/) and [e7_datalog_frontend.zig](examples/e7_datalog_frontend.zig).
+Rules can also be constructed programmatically without source text through `db.builder()`; see the [API documentation](https://CogitatorTech.github.io/zodd/api/) and [e7_datalog_frontend.zig](examples/e7_datalog_frontend.zig).
+
+You can try the frontend in the browser with the [playground](https://CogitatorTech.github.io/zodd/), which runs Zodd compiled to WebAssembly.
+Its sources live in the [web](web) directory; `make web-serve` builds and serves it locally.
 
 ---
 
 ### Documentation
 
-You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/).
+You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/api/).
 
 ### Examples
 
