@@ -68,12 +68,13 @@ lint: ## Check code style and formatting of Zig files
 	@echo "Running code style checks..."
 	$(ZIG) fmt --check $(SRC_DIR) $(TEST_DIR) web/zodd_wasm.zig
 
-web: ## Build the web frontend Wasm module and stage it under web/
+web: ## Build the web frontend Wasm module and stage it under `web/`
 	@echo "Building the web frontend Wasm module..."
 	$(ZIG) build wasm
 	cp $(BUILD_DIR)/web/zodd.wasm web/zodd.wasm
+	cp -f logo.svg web/logo.svg
 
-web-serve: web ## Build and serve the web frontend at http://localhost:8085
+web-serve: web ## Build and serve the web frontend locally
 	@echo "Serving web/ at http://localhost:8085 ..."
 	python3 -m http.server 8085 --directory web
 
@@ -93,7 +94,7 @@ docs: ## Generate API documentation
 	mkdir -p $(DOC_OUT)
 	cp -r $(BUILD_DIR)/docs/* $(DOC_OUT)
 
-docs-serve: ## Serve API documentation locally
+docs-serve: docs ## Serve API documentation locally
 	@echo "Serving documentation locally"
 	cd $(DOC_OUT) && python3 -m http.server 8000
 
