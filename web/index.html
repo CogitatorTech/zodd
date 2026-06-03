@@ -17,6 +17,8 @@
     <nav>
       <a href="api/">API Docs</a>
       <a href="https://github.com/CogitatorTech/zodd">GitHub</a>
+      <button id="about">About</button>
+      <button id="theme" title="Toggle the color theme">&#9728;</button>
     </nav>
   </header>
 
@@ -24,7 +26,9 @@
     <label for="examples">Example:</label>
     <select id="examples"></select>
     <button id="run" title="Run the program (Ctrl+Enter)">Run</button>
+    <button id="load" title="Load a Datalog script from a file">Load</button>
     <button id="share" title="Copy a link to this program">Share</button>
+    <input id="file" type="file" accept=".dl,.datalog,.pl,.txt" hidden>
     <span id="status"></span>
   </div>
 
@@ -46,6 +50,22 @@
     <span>Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run.
       Programs with <code>?-</code> queries answer them; otherwise all derived relations are printed.</span>
   </footer>
+
+  <dialog id="about-dialog">
+    <h2>About Zodd</h2>
+    <p>Zodd is a small embeddable <a href="https://en.wikipedia.org/wiki/Datalog">Datalog</a> engine
+      written in pure Zig. This page runs the engine compiled to WebAssembly, entirely in your browser.</p>
+    <p>The Datalog frontend supports recursive rules, stratified negation (<code>not</code>), aggregates
+      (<code>count</code>, <code>sum</code>, <code>min</code>, and <code>max</code>), and integer or
+      string constants. Programs with <code>?-</code> queries answer them; otherwise all derived
+      relations are printed.</p>
+    <p>
+      <a href="https://github.com/CogitatorTech/zodd">Source Code</a> &middot;
+      <a href="api/">API Docs</a> &middot;
+      <a href="https://github.com/CogitatorTech/zodd/blob/main/LICENSE">MIT License</a>
+    </p>
+    <button id="about-close">Close</button>
+  </dialog>
 
   <script src="main.js"></script>
 </body>

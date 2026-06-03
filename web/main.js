@@ -189,6 +189,12 @@ const statusEl = document.getElementById("status");
 const examplesEl = document.getElementById("examples");
 const runEl = document.getElementById("run");
 const shareEl = document.getElementById("share");
+const loadEl = document.getElementById("load");
+const fileEl = document.getElementById("file");
+const themeEl = document.getElementById("theme");
+const aboutEl = document.getElementById("about");
+const aboutDialogEl = document.getElementById("about-dialog");
+const aboutCloseEl = document.getElementById("about-close");
 const dividerEl = document.getElementById("divider");
 const editorPane = document.querySelector(".editor-pane");
 
@@ -265,6 +271,43 @@ sourceEl.addEventListener("keydown", (event) => {
 
 runEl.addEventListener("click", execute);
 shareEl.addEventListener("click", share);
+
+// Loading a Datalog script from a file.
+loadEl.addEventListener("click", () => fileEl.click());
+fileEl.addEventListener("change", async () => {
+  const file = fileEl.files[0];
+  if (!file) return;
+  setSource(await file.text());
+  // Reset so selecting the same file again still fires a change event.
+  fileEl.value = "";
+  execute();
+});
+
+// Light and dark theme toggle, persisted across visits.
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  themeEl.textContent = theme === "light" ? "☾" : "☀";
+  themeEl.title = theme === "light" ? "Switch to the dark theme" : "Switch to the light theme";
+}
+
+applyTheme(
+  localStorage.getItem("zodd-theme") ??
+    (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"),
+);
+
+themeEl.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  localStorage.setItem("zodd-theme", next);
+  applyTheme(next);
+});
+
+// About dialog.
+aboutEl.addEventListener("click", () => aboutDialogEl.showModal());
+aboutCloseEl.addEventListener("click", () => aboutDialogEl.close());
+aboutDialogEl.addEventListener("click", (event) => {
+  // A click on the backdrop targets the dialog element itself.
+  if (event.target === aboutDialogEl) aboutDialogEl.close();
+});
 
 // Resizable split view.
 dividerEl.addEventListener("pointerdown", (event) => {

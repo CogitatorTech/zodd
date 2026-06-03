@@ -18,6 +18,25 @@
   --mono: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, "Liberation Mono", monospace;
 }
 
+:root[data-theme="light"] {
+  --bg: #fafafa;
+  --bg-panel: #f0f0f1;
+  --bg-toolbar: #eaeaeb;
+  --border: #d4d4d8;
+  --fg: #383a42;
+  --fg-dim: #8e8e93;
+  --accent: #b07800;
+  --error: #e45649;
+  --ok: #50a14f;
+  --tok-comment: #a0a1a7;
+  --tok-string: #50a14f;
+  --tok-number: #986801;
+  --tok-variable: #4078f2;
+  --tok-predicate: #c18401;
+  --tok-keyword: #a626a4;
+  --tok-punct: #383a42;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -55,7 +74,7 @@ header {
   font-weight: 600;
 }
 
-nav { display: flex; gap: 16px; }
+nav { display: flex; align-items: center; gap: 16px; }
 
 nav a {
   color: var(--accent);
@@ -63,6 +82,21 @@ nav a {
 }
 
 nav a:hover { text-decoration: underline; }
+
+nav button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+nav button:hover { text-decoration: underline; }
+
+#theme { font-size: 15px; }
+#theme:hover { text-decoration: none; }
 
 .toolbar {
   display: flex;
@@ -200,3 +234,43 @@ footer code, footer kbd {
   border-radius: 3px;
   padding: 0 4px;
 }
+
+dialog {
+  max-width: 480px;
+  padding: 20px 24px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+
+dialog h2 {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+dialog a { color: var(--accent); }
+
+dialog code {
+  font-family: var(--mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+dialog button {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+dialog button:hover { border-color: var(--accent); }
