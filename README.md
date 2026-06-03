@@ -1,6 +1,6 @@
 <div align="center">
   <picture>
-    <img alt="Zodd Logo" src="logo.svg" height="15%" width="15%">
+    <img alt="Zodd Logo" src="logo.svg" height="25%" width="25%">
   </picture>
 <br>
 
@@ -237,7 +237,7 @@ Zodd is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 ### Acknowledgements
 
-* The logo is from [SVG Repo](https://www.svgrepo.com/svg/469003/gravity) with some modifications.
-* This project uses the [Minish](https://github.com/CogitatorTech/minish) framework for property-based testing and
-  the [Ordered](https://github.com/CogitatorTech/ordered) library for B-tree indices.
+* The logo shows a directed graph that edges form a Z, with a dashed arc for the derived fact `path(a, d)`.
+* This project uses the [Minish](https://github.com/CogitatorTech/minish) for property-based testing and
+  the [Ordered](https://github.com/CogitatorTech/ordered) for B-tree indices.
 * Zodd is inspired and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.

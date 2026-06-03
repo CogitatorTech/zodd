@@ -3,68 +3,123 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Zodd Web Frontend</title>
+  <title>ZODD // Datalog Engine</title>
   <meta name="description" content="Run Datalog programs in the browser with Zodd Datalog engine.">
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="crt-overlay"></div>
+  <div class="vignette"></div>
+  <div class="grid-overlay"></div>
+
   <header>
     <div class="brand">
-      <img src="logo.svg" alt="Zodd logo" width="28" height="28">
-      <h1>Zodd Web Frontend</h1>
+      <img src="logo.svg" alt="Zodd logo" width="32" height="32">
+      <div class="brand-text">
+        <h1>ZODD</h1>
+        <span class="system-tag">RELATION_ENGINE.v0.16.0</span>
+      </div>
     </div>
+    
+    <div class="telemetry-bar">
+      <span class="telemetry-item"><span class="led-light"></span> RUNNING_STATE: OK</span>
+      <span class="telemetry-item">MEM_ALLOC: AUTO</span>
+    </div>
+
     <nav>
-      <a href="api/">API Docs</a>
-      <a href="https://github.com/CogitatorTech/zodd">GitHub</a>
-      <button id="about">About</button>
-      <button id="theme" title="Toggle the color theme">&#9728;</button>
+      <a href="api/" target="_blank">[ API_DOCS ]</a>
+      <a href="https://github.com/CogitatorTech/zodd" target="_blank">[ GITHUB ]</a>
+      <button id="about">[ INFO_PANEL ]</button>
+      <button id="theme" title="Toggle system mode">&#9728;</button>
     </nav>
   </header>
 
   <div class="toolbar">
-    <label for="examples">Example:</label>
-    <select id="examples"></select>
-    <button id="run" title="Run the program (Ctrl+Enter)">Run</button>
-    <button id="load" title="Load a Datalog script from a file">Load</button>
-    <button id="share" title="Copy a link to this program">Share</button>
+    <div class="control-group">
+      <label for="examples">> SELECT_RULESET:</label>
+      <div class="select-wrapper">
+        <select id="examples"></select>
+      </div>
+    </div>
+    
+    <div class="button-group">
+      <button id="run" title="Execute program (Ctrl+Enter)">[ EXECUTE_QUERY ]</button>
+      <button id="load" title="Load script from disk">[ LOAD_FILE ]</button>
+      <button id="share" title="Copy permalink">[ EXPORT_LINK ]</button>
+    </div>
+    
     <input id="file" type="file" accept=".dl,.datalog,.pl,.txt" hidden>
     <span id="status"></span>
   </div>
 
   <main id="split">
     <section class="pane editor-pane">
+      <div class="pane-header">
+        <span class="pane-title">> SOURCE_CODE_BUFFER</span>
+        <span class="pane-tag">[UTF-8]</span>
+      </div>
       <div class="editor">
         <pre id="highlight" aria-hidden="true"><code id="highlight-code"></code></pre>
         <textarea id="source" spellcheck="false" autocomplete="off"
           autocapitalize="off" wrap="off" aria-label="Datalog source"></textarea>
       </div>
+      <div class="pane-decor-tl">+</div>
+      <div class="pane-decor-tr">+</div>
+      <div class="pane-decor-bl">+</div>
+      <div class="pane-decor-br">+</div>
     </section>
+    
     <div id="divider" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+    
     <section class="pane output-pane">
+      <div class="pane-header">
+        <span class="pane-title">> COMPILER_OUTPUT_TELEMETRY</span>
+        <span class="pane-tag">[SYS_MON]</span>
+      </div>
       <pre id="output">Loading Wasm module...</pre>
+      <div class="pane-decor-tl">+</div>
+      <div class="pane-decor-tr">+</div>
+      <div class="pane-decor-bl">+</div>
+      <div class="pane-decor-br">+</div>
     </section>
   </main>
 
   <footer>
-    <span>Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run.
-      Programs with <code>?-</code> queries answer them; otherwise all derived relations are printed.</span>
+    <div class="sys-info">
+      <span>ZODD_WASM_IO: OK</span>
+      <span>// PROCESSOR: SEMI_NAIVE_ITERATION</span>
+    </div>
+    <div class="shortcuts">
+      <span>SHORTCUT: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> (EXEC)</span>
+      <span>COMPILATION: <code>?-</code> INVOKES BINDINGS; OTHERWISE DUMPS ENTIRE BASE RELATION</span>
+    </div>
   </footer>
 
   <dialog id="about-dialog">
-    <h2>About Zodd</h2>
-    <p>Zodd is a small embeddable <a href="https://en.wikipedia.org/wiki/Datalog">Datalog</a> engine
-      written in pure Zig. This page runs the engine compiled to WebAssembly, entirely in your browser.</p>
-    <p>The Datalog frontend supports recursive rules, stratified negation (<code>not</code>), aggregates
-      (<code>count</code>, <code>sum</code>, <code>min</code>, and <code>max</code>), and integer or
-      string constants. Programs with <code>?-</code> queries answer them; otherwise all derived
-      relations are printed.</p>
-    <p>
-      <a href="https://github.com/CogitatorTech/zodd">Source Code</a> &middot;
-      <a href="api/">API Docs</a> &middot;
-      <a href="https://github.com/CogitatorTech/zodd/blob/main/LICENSE">MIT License</a>
-    </p>
-    <button id="about-close">Close</button>
+    <div class="dialog-header">
+      <h2>ZODD SYSTEM SPECIFICATION</h2>
+      <span class="dialog-id">[SYS.SPEC.001]</span>
+    </div>
+    <div class="dialog-body">
+      <p>Zodd is a specialized, embeddable Datalog engine written in pure Zig. This interface targets the core engine compiled to WebAssembly, executing recursively within your sandbox.</p>
+      <p>The compiler parses relations, processes stratified negation (<code>not</code>), and evaluates aggregations (<code>count</code>, <code>sum</code>, <code>min</code>, and <code>max</code>).</p>
+      <div class="diagnostic-grid">
+        <div class="diag-item"><span class="label">CORE:</span><span>ZIG 0.16.0</span></div>
+        <div class="diag-item"><span class="label">TARGET:</span><span>WASM32-FREESTANDING</span></div>
+        <div class="diag-item"><span class="label">LICENSE:</span><span>MIT CONTRACT</span></div>
+        <div class="diag-item"><span class="label">REPOS:</span><span>COGITATOR_TECH_ZODD</span></div>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <a href="https://github.com/CogitatorTech/zodd" target="_blank">[ SOURCE_CODE ]</a>
+      <a href="api/" target="_blank">[ DOCUMENTATION ]</a>
+      <button id="about-close">[ CLOSE_PANEL ]</button>
+    </div>
+    <div class="dialog-decor-tl">+</div>
+    <div class="dialog-decor-tr">+</div>
+    <div class="dialog-decor-bl">+</div>
+    <div class="dialog-decor-br">+</div>
   </dialog>
 
   <script src="main.js"></script>
