@@ -854,6 +854,106 @@ if (typeof document !== "undefined") {
       sourceEl.selectionStart = sourceEl.selectionEnd = start + 4;
       syncHighlight(null);
       localStorage.setItem("zodd-source", sourceEl.value);
+    } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const start = sourceEl.selectionStart;
+      const end = sourceEl.selectionEnd;
+      if (start === end) {
+        const val = sourceEl.value;
+        const lastNewline = val.lastIndexOf("\n", start - 1);
+        const lineStart = lastNewline + 1;
+        const currentLine = val.substring(lineStart, start);
+        const indentMatch = currentLine.match(/^\s*/);
+        const indent = indentMatch ? indentMatch[0] : "";
+        if (indent.length > 0) {
+          event.preventDefault();
+          const insert = "\n" + indent;
+          sourceEl.value = val.substring(0, start) + insert + val.substring(start);
+          sourceEl.selectionStart = sourceEl.selectionEnd = start + insert.length;
+          syncHighlight(null);
+          localStorage.setItem("zodd-source", sourceEl.value);
+        }
+      }
+    } else if ((event.key === "(" || event.key === "[" || event.key === "{" || event.key === '"') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      const start = sourceEl.selectionStart;
+      const end = sourceEl.selectionEnd;
+      const val = sourceEl.value;
+      const pairs = { "(": ")", "[": "]", "{": "}", '"': '"' };
+      const closingChar = pairs[event.key];
+      if (start !== end) {
+        const selectedText = val.substring(start, end);
+        const insert = event.key + selectedText + closingChar;
+        sourceEl.value = val.substring(0, start) + insert + val.substring(end);
+        sourceEl.selectionStart = start + 1;
+        sourceEl.selectionEnd = end + 1;
+      } else {
+        if (event.key === '"' && val.charAt(start) === '"') {
+          sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
+        } else {
+          const insert = event.key + closingChar;
+          sourceEl.value = val.substring(0, start) + insert + val.substring(start);
+          sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
+        }
+      }
+      syncHighlight(null);
+      localStorage.setItem("zodd-source", sourceEl.value);
+    } else if ((event.key === ")" || event.key === "]" || event.key === "}" || event.key === '"') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const start = sourceEl.selectionStart;
+      const val = sourceEl.value;
+      if (start === sourceEl.selectionEnd && val.charAt(start) === event.key) {
+        event.preventDefault();
+        sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
+      }
+    } else if (event.key === "Backspace" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const start = sourceEl.selectionStart;
+      const end = sourceEl.selectionEnd;
+      if (start === end && start > 0) {
+        const val = sourceEl.value;
+        const charBefore = val.charAt(start - 1);
+        const charAfter = val.charAt(start);
+        if (
+          (charBefore === "(" && charAfter === ")") ||
+          (charBefore === "[" && charAfter === "]") ||
+          (charBefore === "{" && charAfter === "}") ||
+          (charBefore === '"' && charAfter === '"')
+        ) {
+          event.preventDefault();
+          sourceEl.value = val.substring(0, start - 1) + val.substring(start + 1);
+          sourceEl.selectionStart = sourceEl.selectionEnd = start - 1;
+          syncHighlight(null);
+          localStorage.setItem("zodd-source", sourceEl.value);
+        }
+      }
+    } else if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+      event.preventDefault();
+      const start = sourceEl.selectionStart;
+      const end = sourceEl.selectionEnd;
+      const val = sourceEl.value;
+      const lastNewline = val.lastIndexOf("\n", start - 1);
+      const lineStart = lastNewline + 1;
+      const nextNewline = val.indexOf("\n", end);
+      const lineEnd = nextNewline === -1 ? val.length : nextNewline;
+      const lineText = val.substring(lineStart, lineEnd);
+      let newLineText;
+      let offset;
+      if (lineText.trim().startsWith("%")) {
+        newLineText = lineText.replace(/^\s*% ?/, (match) => {
+          const indent = match.match(/^\s*/)[0];
+          return indent;
+        });
+        offset = newLineText.length - lineText.length;
+      } else {
+        const indentMatch = lineText.match(/^\s*/);
+        const indent = indentMatch ? indentMatch[0] : "";
+        const content = lineText.substring(indent.length);
+        newLineText = indent + "% " + content;
+        offset = 2;
+      }
+      sourceEl.value = val.substring(0, lineStart) + newLineText + val.substring(lineEnd);
+      sourceEl.selectionStart = start + offset;
+      sourceEl.selectionEnd = end + offset;
+      syncHighlight(null);
+      localStorage.setItem("zodd-source", sourceEl.value);
     } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
       execute();
