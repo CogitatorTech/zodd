@@ -497,30 +497,7 @@ function copyToClipboard(text) {
 
 let activeErrorLine = null;
 
-
-const sourceEl = document.getElementById("source");
-const highlightEl = document.getElementById("highlight");
-const highlightCodeEl = document.getElementById("highlight-code");
-const outputEl = document.getElementById("output");
-const outputTableEl = document.getElementById("output-table");
-const viewTextEl = document.getElementById("view-text");
-const viewTableEl = document.getElementById("view-table");
-const statusEl = document.getElementById("status");
-const examplesEl = document.getElementById("examples");
-const runEl = document.getElementById("run");
-const shareEl = document.getElementById("share");
-const loadEl = document.getElementById("load");
-const downloadEl = document.getElementById("download");
-const clearEl = document.getElementById("clear");
-const clearOutputEl = document.getElementById("clear-output");
-const telemetryInfoEl = document.getElementById("telemetry-info");
-const fileEl = document.getElementById("file");
-const themeEl = document.getElementById("theme");
-const aboutEl = document.getElementById("about");
-const aboutDialogEl = document.getElementById("about-dialog");
-const aboutCloseEl = document.getElementById("about-close");
-const dividerEl = document.getElementById("divider");
-const editorPane = document.querySelector(".editor-pane");
+let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, statusEl, examplesEl, runEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
 
 function syncHighlight(errorLine = null) {
   activeErrorLine = errorLine;
@@ -611,140 +588,11 @@ function share() {
     .catch(() => setStatus("link in address bar", "ok"));
 }
 
-// Examples dropdown.
-for (const [index, example] of EXAMPLES.entries()) {
-  const option = document.createElement("option");
-  option.value = String(index);
-  option.textContent = example.name;
-  examplesEl.appendChild(option);
-}
-examplesEl.addEventListener("change", () => {
-  setSource(EXAMPLES[Number(examplesEl.value)].source);
-});
-
-// Editor events.
-sourceEl.addEventListener("input", () => {
-  syncHighlight(null);
-  localStorage.setItem("zodd-source", sourceEl.value);
-});
-sourceEl.addEventListener("scroll", syncScroll);
-sourceEl.addEventListener("keydown", (event) => {
-  if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    event.preventDefault();
-    const start = sourceEl.selectionStart;
-    const end = sourceEl.selectionEnd;
-    const val = sourceEl.value;
-    sourceEl.value = val.substring(0, start) + "    " + val.substring(end);
-    sourceEl.selectionStart = sourceEl.selectionEnd = start + 4;
-    syncHighlight(null);
-    localStorage.setItem("zodd-source", sourceEl.value);
-  } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-    event.preventDefault();
-    execute();
-  }
-});
-
-runEl.addEventListener("click", execute);
-shareEl.addEventListener("click", share);
-
-downloadEl.addEventListener("click", () => {
-  const blob = new Blob([sourceEl.value], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "program.dl";
-  a.click();
-  URL.revokeObjectURL(url);
-  setStatus("downloaded", "ok");
-});
-
-clearEl.addEventListener("click", () => {
-  setSource("");
-  setStatus("CLEARED", "cleared");
-});
-
-clearOutputEl.addEventListener("click", () => {
-  outputEl.textContent = "";
-  outputEl.classList.remove("error");
-  outputTableEl.innerHTML = "";
-  setStatus("CLEARED", "cleared");
-  telemetryInfoEl.textContent = "";
-});
-
-// Loading a Datalog script from a file.
-loadEl.addEventListener("click", () => fileEl.click());
-fileEl.addEventListener("change", async () => {
-  const file = fileEl.files[0];
-  if (!file) return;
-  setSource(await file.text());
-  // Reset so selecting the same file again still fires a change event.
-  fileEl.value = "";
-  execute();
-});
-
-// Light and dark theme toggle, persisted across visits.
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   themeEl.textContent = theme === "light" ? "☾" : "☀";
   themeEl.title = theme === "light" ? "Switch to the dark theme" : "Switch to the light theme";
 }
-
-applyTheme(localStorage.getItem("zodd-theme") ?? "dark");
-
-themeEl.addEventListener("click", () => {
-  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-  localStorage.setItem("zodd-theme", next);
-  applyTheme(next);
-});
-
-// About dialog.
-aboutEl.addEventListener("click", () => aboutDialogEl.showModal());
-aboutCloseEl.addEventListener("click", () => aboutDialogEl.close());
-aboutDialogEl.addEventListener("click", (event) => {
-  // A click on the backdrop targets the dialog element itself.
-  if (event.target === aboutDialogEl) aboutDialogEl.close();
-});
-
-// Resizable split view.
-dividerEl.addEventListener("pointerdown", (event) => {
-  event.preventDefault();
-  dividerEl.classList.add("dragging");
-  dividerEl.setPointerCapture(event.pointerId);
-  const onMove = (move) => {
-    const bounds = document.getElementById("split").getBoundingClientRect();
-    const fraction = Math.min(0.85, Math.max(0.15, (move.clientX - bounds.left) / bounds.width));
-    editorPane.style.flexBasis = `${(fraction * 100).toFixed(1)}%`;
-  };
-  const onUp = () => {
-    dividerEl.classList.remove("dragging");
-    dividerEl.releasePointerCapture(event.pointerId);
-    dividerEl.removeEventListener("pointermove", onMove);
-    dividerEl.removeEventListener("pointerup", onUp);
-    dividerEl.removeEventListener("pointercancel", onUp);
-  };
-  dividerEl.addEventListener("pointermove", onMove);
-  dividerEl.addEventListener("pointerup", onUp);
-  dividerEl.addEventListener("pointercancel", onUp);
-});
-
-// Initial program: a permalink if present, the autosaved progress if available, or the first example otherwise.
-(function initSource() {
-  const hash = window.location.hash;
-  if (hash.startsWith("#program=")) {
-    try {
-      setSource(decodeProgram(hash.slice("#program=".length)));
-      return;
-    } catch {
-      // Bad permalink; fall back to the first example.
-    }
-  }
-  const saved = localStorage.getItem("zodd-source");
-  if (saved !== null) {
-    setSource(saved);
-    return;
-  }
-  setSource(EXAMPLES[0].source);
-})();
 
 // --- Output View Toggling & Parsing -------------------------------------------
 
@@ -765,62 +613,8 @@ function setView(view) {
   }
 }
 
-viewTextEl.addEventListener("click", () => setView("text"));
-viewTableEl.addEventListener("click", () => setView("table"));
-
-// Delegated listener to copy a table's data in TSV format (ignoring the index column)
-outputTableEl.addEventListener("click", (event) => {
-  const btn = event.target.closest(".copy-table-btn");
-  if (!btn) return;
-
-  const group = btn.closest(".output-table-group");
-  if (!group) return;
-
-  const table = group.querySelector(".output-table-el");
-  if (!table) return;
-
-  const rows = table.querySelectorAll("tbody tr");
-  const headers = table.querySelectorAll("thead th");
-
-  let tsvLines = [];
-
-  // Headers (skipping index column)
-  let headerCols = [];
-  for (let i = 0; i < headers.length; i++) {
-    if (headers[i].classList.contains("index-col")) continue;
-    headerCols.push(headers[i].textContent);
-  }
-  tsvLines.push(headerCols.join("\t"));
-
-  // Rows (skipping index column)
-  for (let r = 0; r < rows.length; r++) {
-    const cells = rows[r].querySelectorAll("td");
-    let rowCols = [];
-    for (let c = 0; c < cells.length; c++) {
-      if (cells[c].classList.contains("index-col")) continue;
-      rowCols.push(cells[c].textContent);
-    }
-    tsvLines.push(rowCols.join("\t"));
-  }
-
-  const tsvText = tsvLines.join("\n");
-  copyToClipboard(tsvText).then(() => {
-    const originalText = btn.textContent;
-    btn.textContent = "Copied!";
-    btn.style.borderColor = "var(--ok)";
-    btn.style.color = "var(--ok)";
-    setTimeout(() => {
-      btn.textContent = originalText;
-      btn.style.borderColor = "";
-      btn.style.color = "";
-    }, 1500);
-  }).catch((err) => {
-    console.error("Clipboard copy failed: ", err);
-  });
-});
-
 function parseOutputToTables(text) {
-  if (!text || text.trim() === "") {
+  if (!text || text.trim() === "" || text.trim() === "(no results)" || text.trim() === "(no output)") {
     return `<div class="output-table-no-results">No results returned.</div>`;
   }
 
@@ -884,7 +678,7 @@ function parseOutputToTables(text) {
     }
 
     // Check if the line is a tuple: e.g. "(1, 2)" or "  (1, 2)"
-    if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+    if (trimmed.startsWith("(") && trimmed.endsWith(")") && trimmed !== "(no results)" && trimmed !== "(no output)") {
       flushText();
       const content = trimmed.slice(1, -1).trim();
       const rowData = parseTuple(content);
@@ -1007,38 +801,257 @@ function cleanValue(val) {
   return val;
 }
 
-// Load the Wasm module, then run the initial program.
-loadWasm()
-  .then((exports) => {
-    wasm = exports;
+// Wrap all DOM execution & side-effects
+if (typeof document !== "undefined") {
+  sourceEl = document.getElementById("source");
+  highlightEl = document.getElementById("highlight");
+  highlightCodeEl = document.getElementById("highlight-code");
+  outputEl = document.getElementById("output");
+  outputTableEl = document.getElementById("output-table");
+  viewTextEl = document.getElementById("view-text");
+  viewTableEl = document.getElementById("view-table");
+  statusEl = document.getElementById("status");
+  examplesEl = document.getElementById("examples");
+  runEl = document.getElementById("run");
+  shareEl = document.getElementById("share");
+  loadEl = document.getElementById("load");
+  downloadEl = document.getElementById("download");
+  clearEl = document.getElementById("clear");
+  clearOutputEl = document.getElementById("clear-output");
+  telemetryInfoEl = document.getElementById("telemetry-info");
+  fileEl = document.getElementById("file");
+  themeEl = document.getElementById("theme");
+  aboutEl = document.getElementById("about");
+  aboutDialogEl = document.getElementById("about-dialog");
+  aboutCloseEl = document.getElementById("about-close");
+  dividerEl = document.getElementById("divider");
+  editorPane = document.querySelector(".editor-pane");
 
-    // Resolve and set version, build, and license metadata from Wasm
-    try {
-      const versionStr = decoder.decode(
-        new Uint8Array(wasm.memory.buffer, wasm.versionPtr(), wasm.versionLen()),
-      );
-      const commitStr = decoder.decode(
-        new Uint8Array(wasm.memory.buffer, wasm.commitPtr(), wasm.commitLen()),
-      );
-      const zigStr = decoder.decode(
-        new Uint8Array(wasm.memory.buffer, wasm.zigVersionPtr(), wasm.zigVersionLen()),
-      );
-      const licenseStr = decoder.decode(
-        new Uint8Array(wasm.memory.buffer, wasm.licensePtr(), wasm.licenseLen()),
-      );
+  // Examples dropdown.
+  for (const [index, example] of EXAMPLES.entries()) {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = example.name;
+    examplesEl.appendChild(option);
+  }
+  examplesEl.addEventListener("change", () => {
+    setSource(EXAMPLES[Number(examplesEl.value)].source);
+  });
 
-      document.getElementById("about-version").textContent = `${versionStr} (Zig ${zigStr})`;
-      document.getElementById("about-build").textContent = `Wasm32 (${commitStr})`;
-      document.getElementById("about-license").textContent = licenseStr;
-    } catch (e) {
-      // Fallback if functions are missing
+  // Editor events.
+  sourceEl.addEventListener("input", () => {
+    syncHighlight(null);
+    localStorage.setItem("zodd-source", sourceEl.value);
+  });
+  sourceEl.addEventListener("scroll", syncScroll);
+  sourceEl.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      const start = sourceEl.selectionStart;
+      const end = sourceEl.selectionEnd;
+      const val = sourceEl.value;
+      sourceEl.value = val.substring(0, start) + "    " + val.substring(end);
+      sourceEl.selectionStart = sourceEl.selectionEnd = start + 4;
+      syncHighlight(null);
+      localStorage.setItem("zodd-source", sourceEl.value);
+    } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      execute();
+    }
+  });
+
+  runEl.addEventListener("click", execute);
+  shareEl.addEventListener("click", share);
+
+  downloadEl.addEventListener("click", () => {
+    const blob = new Blob([sourceEl.value], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "program.dl";
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus("downloaded", "ok");
+  });
+
+  clearEl.addEventListener("click", () => {
+    setSource("");
+    setStatus("CLEARED", "cleared");
+  });
+
+  clearOutputEl.addEventListener("click", () => {
+    outputEl.textContent = "";
+    outputEl.classList.remove("error");
+    outputTableEl.innerHTML = "";
+    setStatus("CLEARED", "cleared");
+    telemetryInfoEl.textContent = "";
+  });
+
+  // Loading a Datalog script from a file.
+  loadEl.addEventListener("click", () => fileEl.click());
+  fileEl.addEventListener("change", async () => {
+    const file = fileEl.files[0];
+    if (!file) return;
+    setSource(await file.text());
+    // Reset so selecting the same file again still fires a change event.
+    fileEl.value = "";
+    execute();
+  });
+
+  applyTheme(localStorage.getItem("zodd-theme") ?? "dark");
+
+  themeEl.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    localStorage.setItem("zodd-theme", next);
+    applyTheme(next);
+  });
+
+  // About dialog.
+  aboutEl.addEventListener("click", () => aboutDialogEl.showModal());
+  aboutCloseEl.addEventListener("click", () => aboutDialogEl.close());
+  aboutDialogEl.addEventListener("click", (event) => {
+    // A click on the backdrop targets the dialog element itself.
+    if (event.target === aboutDialogEl) aboutDialogEl.close();
+  });
+
+  // Resizable split view.
+  dividerEl.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    dividerEl.classList.add("dragging");
+    dividerEl.setPointerCapture(event.pointerId);
+    const onMove = (move) => {
+      const bounds = document.getElementById("split").getBoundingClientRect();
+      const fraction = Math.min(0.85, Math.max(0.15, (move.clientX - bounds.left) / bounds.width));
+      editorPane.style.flexBasis = `${(fraction * 100).toFixed(1)}%`;
+    };
+    const onUp = () => {
+      dividerEl.classList.remove("dragging");
+      dividerEl.releasePointerCapture(event.pointerId);
+      dividerEl.removeEventListener("pointermove", onMove);
+      dividerEl.removeEventListener("pointerup", onUp);
+      dividerEl.removeEventListener("pointercancel", onUp);
+    };
+    dividerEl.addEventListener("pointermove", onMove);
+    dividerEl.addEventListener("pointerup", onUp);
+    dividerEl.addEventListener("pointercancel", onUp);
+  });
+
+  // Initial program: a permalink if present, the autosaved progress if available, or the first example otherwise.
+  (function initSource() {
+    const hash = window.location.hash;
+    if (hash.startsWith("#program=")) {
+      try {
+        setSource(decodeProgram(hash.slice("#program=".length)));
+        return;
+      } catch {
+        // Bad permalink; fall back to the first example.
+      }
+    }
+    const saved = localStorage.getItem("zodd-source");
+    if (saved !== null) {
+      setSource(saved);
+      return;
+    }
+    setSource(EXAMPLES[0].source);
+  })();
+
+  viewTextEl.addEventListener("click", () => setView("text"));
+  viewTableEl.addEventListener("click", () => setView("table"));
+
+  // Delegated listener to copy a table's data in TSV format (ignoring the index column)
+  outputTableEl.addEventListener("click", (event) => {
+    const btn = event.target.closest(".copy-table-btn");
+    if (!btn) return;
+
+    const group = btn.closest(".output-table-group");
+    if (!group) return;
+
+    const table = group.querySelector(".output-table-el");
+    if (!table) return;
+
+    const rows = table.querySelectorAll("tbody tr");
+    const headers = table.querySelectorAll("thead th");
+
+    let tsvLines = [];
+
+    // Headers (skipping index column)
+    let headerCols = [];
+    for (let i = 0; i < headers.length; i++) {
+      if (headers[i].classList.contains("index-col")) continue;
+      headerCols.push(headers[i].textContent);
+    }
+    tsvLines.push(headerCols.join("\t"));
+
+    // Rows (skipping index column)
+    for (let r = 0; r < rows.length; r++) {
+      const cells = rows[r].querySelectorAll("td");
+      let rowCols = [];
+      for (let c = 0; c < cells.length; c++) {
+        if (cells[c].classList.contains("index-col")) continue;
+        rowCols.push(cells[c].textContent);
+      }
+      tsvLines.push(rowCols.join("\t"));
     }
 
-    setStatus("ready", "ok");
-    execute();
-  })
-  .catch((err) => {
-    outputEl.textContent = `Failed to load zodd.wasm: ${err}\n\nBuild it with: make web`;
-    outputEl.classList.add("error");
-    setStatus("load failed", "error");
+    const tsvText = tsvLines.join("\n");
+    copyToClipboard(tsvText).then(() => {
+      const originalText = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.style.borderColor = "var(--ok)";
+      btn.style.color = "var(--ok)";
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.borderColor = "";
+        btn.style.color = "";
+      }, 1500);
+    }).catch((err) => {
+      console.error("Clipboard copy failed: ", err);
+    });
   });
+
+  // Load the Wasm module, then run the initial program.
+  loadWasm()
+    .then((exports) => {
+      wasm = exports;
+
+      // Resolve and set version, build, and license metadata from Wasm
+      try {
+        const versionStr = decoder.decode(
+          new Uint8Array(wasm.memory.buffer, wasm.versionPtr(), wasm.versionLen()),
+        );
+        const commitStr = decoder.decode(
+          new Uint8Array(wasm.memory.buffer, wasm.commitPtr(), wasm.commitLen()),
+        );
+        const zigStr = decoder.decode(
+          new Uint8Array(wasm.memory.buffer, wasm.zigVersionPtr(), wasm.zigVersionLen()),
+        );
+        const licenseStr = decoder.decode(
+          new Uint8Array(wasm.memory.buffer, wasm.licensePtr(), wasm.licenseLen()),
+        );
+
+        document.getElementById("about-version").textContent = `${versionStr} (Zig ${zigStr})`;
+        document.getElementById("about-build").textContent = `Wasm32 (${commitStr})`;
+        document.getElementById("about-license").textContent = licenseStr;
+      } catch (e) {
+        // Fallback if functions are missing
+      }
+
+      setStatus("ready", "ok");
+      execute();
+    })
+    .catch((err) => {
+      outputEl.textContent = `Failed to load zodd.wasm: ${err}\n\nBuild it with: make web`;
+      outputEl.classList.add("error");
+      setStatus("load failed", "error");
+    });
+}
+
+// --- Node exports for testing -------------------------------------------------
+if (typeof exports !== "undefined") {
+  exports.parseTuple = parseTuple;
+  exports.cleanValue = cleanValue;
+  exports.parseOutputToTables = parseOutputToTables;
+  exports.highlight = highlight;
+  exports.encodeProgram = encodeProgram;
+  exports.decodeProgram = decodeProgram;
+}

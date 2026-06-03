@@ -3,6 +3,11 @@
 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { parseTuple, parseOutputToTables, cleanValue } = require("./main.js");
+
 
 const wasmPath = fileURLToPath(new URL("./zodd.wasm", import.meta.url));
 const bytes = await readFile(wasmPath);
@@ -82,5 +87,43 @@ expect(empty.out.includes("(no results)"), "empty program output missing");
 const again = run("f(1). g(X) :- f(X). ?- g(1).");
 expect(again.status === 0, `repeat status is ${again.status}`);
 expect(again.out.includes("(1)"), "repeat run output missing");
+
+// --- Regression and Unit Tests for JS logic in main.js ------------------------
+console.log("Running JS utility unit tests...");
+
+// 1. parseTuple
+const t1 = parseTuple("1, 2, 3");
+expect(t1.length === 3 && t1[0] === "1" && t1[1] === "2" && t1[2] === "3", "simple parseTuple failed");
+
+const t2 = parseTuple('"hello", 42, "world, test"');
+expect(t2.length === 3 && t2[0] === '"hello"' && t2[1] === "42" && t2[2] === '"world, test"', "parseTuple with commas inside quotes failed");
+
+const t3 = parseTuple("");
+expect(t3.length === 0, "empty parseTuple should return empty array");
+
+const t4 = parseTuple("   ");
+expect(t4.length === 0, "whitespace-only parseTuple should return empty array");
+
+// 2. cleanValue
+expect(cleanValue('"hello"') === "hello", "cleanValue unquote failed");
+expect(cleanValue('"hello\\nworld"') === "hello\nworld", "cleanValue newline escaped failed");
+expect(cleanValue("42") === "42", "cleanValue number unquoted failed");
+
+// 3. parseOutputToTables
+const textOutput = `
+?- path:
+  (1, 2)
+  (1, 3)
+`;
+const htmlTable = parseOutputToTables(textOutput);
+expect(htmlTable.includes('<table class="output-table-el">'), "tabular format missing from output table HTML");
+expect(htmlTable.includes('<h4 class="output-table-title">?- path</h4>'), "title missing from output table HTML");
+expect(htmlTable.includes("Col 1") && htmlTable.includes("Col 2"), "table columns headers missing");
+
+const emptyOutput = `(no results)\n`;
+const htmlEmpty = parseOutputToTables(emptyOutput);
+expect(htmlEmpty.includes("No results"), "empty output handling failed");
+
+console.log("JS utility unit tests SUCCESS");
 
 console.log("Wasm smoke test SUCCESS");
