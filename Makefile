@@ -94,7 +94,7 @@ docs: ## Generate API documentation
 	mkdir -p $(DOC_OUT)
 	cp -r $(BUILD_DIR)/docs/* $(DOC_OUT)
 
-docs-serve: ## Serve API documentation locally
+docs-serve: docs ## Serve API documentation locally
 	@echo "Serving documentation locally"
 	cd $(DOC_OUT) && python3 -m http.server 8000
 
