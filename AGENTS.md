@@ -39,7 +39,7 @@ Priorities, in order:
 - `src/zodd/iteration.zig`: `Iteration` driver for semi-naive evaluation.
 - `src/zodd/join.zig`: Merge-join algorithms (`joinHelper`, `joinInto`, `joinAnti`).
 - `src/zodd/extend.zig`: Leaper-based extension primitives (`ExtendWith`, `FilterAnti`, `ExtendAnti`, `extendInto`).
-- `src/zodd/index.zig`: Indexes for keyed lookups.
+- `src/zodd/secondary_index.zig`: Indexes for keyed lookups.
 - `src/zodd/aggregate.zig`: Group-by and aggregation operations.
 - `src/zodd/frontend/`: Datalog frontend. `program.zig` is the public `Database` API; `token.zig` and `parser.zig` parse textual Datalog;
   `ast.zig` and `builder.zig` hold the shared IR and the programmatic builder; `analyze.zig` checks safety and stratification;
