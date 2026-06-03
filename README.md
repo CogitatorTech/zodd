@@ -178,9 +178,6 @@ pub fn main() !void {
 
 You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/).
 
-Alternatively, you can use the `make docs` command to generate the documentation for the current version of Zodd.
-This will generate HTML documentation in the `docs/api` directory, which you can serve locally with `make docs-serve` and view in a web browser.
-
 ### Examples
 
 Check out the [examples](examples) directory for example usages of Zodd.
