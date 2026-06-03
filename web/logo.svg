@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
+
+<svg
+    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+    fill="#000000"
+    width="333.35297"
+    height="666.68628"
+    viewBox="0 0 10.000589 20.000588"
+    id="gravity"
+    data-name="Flat Line"
+    class="icon flat-line"
+    version="1.1"
+    sodipodi:docname="logo.svg"
+    inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+    xmlns="http://www.w3.org/2000/svg"
+>
+    <defs
+        id="defs7"/>
+    <sodipodi:namedview
+        id="namedview5"
+        pagecolor="#ffffff"
+        bordercolor="#000000"
+        borderopacity="0.25"
+        inkscape:showpageshadow="2"
+        inkscape:pageopacity="0.0"
+        inkscape:pagecheckerboard="false"
+        inkscape:deskcolor="#d1d1d1"
+        showgrid="false"
+        inkscape:zoom="0.834386"
+        inkscape:cx="186.36458"
+        inkscape:cy="229.51008"
+        inkscape:window-width="1862"
+        inkscape:window-height="1131"
+        inkscape:window-x="58"
+        inkscape:window-y="32"
+        inkscape:window-maximized="1"
+        inkscape:current-layer="gravity"
+        showborder="true"/>
+    <circle
+        id="secondary"
+        cx="5.0005894"
+        cy="15"
+        r="4"
+        style="fill:#ffcc00;stroke-width:2"/>
+    <path
+        id="primary"
+        d="m 5.0005891,1 v 6 m 4,-5 v 6 m -8,-6 v 6 m 4,3 a 4,4 0 1 0 4,4 4,4 0 0 0 -4,-4 z"
+        style="fill:none;stroke:#000000;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"/>
+</svg>

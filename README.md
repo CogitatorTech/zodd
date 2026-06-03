@@ -9,7 +9,8 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/zodd/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/CogitatorTech/zodd/blob/main/LICENSE)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/zodd/tree/main/examples)
-[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/)
+[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/zodd/api/)
+[![Web Frontend](https://img.shields.io/badge/web_frontend-try-orange?style=flat&labelColor=282c34&logo=webassembly)](https://CogitatorTech.github.io/zodd/)
 [![Zig](https://img.shields.io/badge/zig-0.16.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/release/CogitatorTech/zodd.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/releases/latest)
 
@@ -79,6 +80,7 @@ For example:
 - Implements semi-naive evaluation for efficient recursive query processing
 - Uses immutable, sorted, and deduplicated relations as core data structures
 - Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
+- Includes a Datalog frontend with a parser, a builder API, stratified negation, and aggregates
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 
@@ -172,14 +174,52 @@ pub fn main() !void {
 }
 ```
 
+#### Datalog Frontend
+
+Alternatively, the same program can be written in textual Datalog using the frontend.
+The frontend parses facts and rules, checks them (safety, arity, and stratification), and evaluates them with the same semi-naive engine.
+It supports recursive rules, negation (`not`), aggregates (`count`, `sum`, `min`, and `max`), and integer or string constants.
+
+```zig
+const std = @import("std");
+const zodd = @import("zodd");
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+
+    try db.run(
+        \\edge(1, 2).
+        \\edge(2, 3).
+        \\edge(3, 4).
+        \\reachable(X, Y) :- edge(X, Y).
+        \\reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
+    );
+    try db.solve();
+
+    // ?- reachable(1, X).
+    var it = try db.query("reachable", &.{ zodd.Value{ .int = 1 }, null });
+    defer it.deinit();
+    while (it.next()) |row| {
+        std.debug.print("{f}\n", .{row});
+    }
+}
+```
+
+Rules can also be constructed programmatically without source text through `db.builder()`; see the [API documentation](https://CogitatorTech.github.io/zodd/api/) and [e7_datalog_frontend.zig](examples/e7_datalog_frontend.zig).
+
+You can try the Datalog frontend in the browser with the [web frontend](https://CogitatorTech.github.io/zodd/), which runs Zodd compiled to WebAssembly.
+Its sources live in the [web](web) directory; `make web-serve` builds and serves it locally.
+
 ---
 
 ### Documentation
 
-You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/).
-
-Alternatively, you can use the `make docs` command to generate the documentation for the current version of Zodd.
-This will generate HTML documentation in the `docs/api` directory, which you can serve locally with `make docs-serve` and view in a web browser.
+You can find the API documentation for the latest release of Zodd [here](https://CogitatorTech.github.io/zodd/api/).
 
 ### Examples
 

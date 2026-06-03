@@ -29,7 +29,7 @@ This document outlines the features implemented in Zodd and the future goals for
 - [ ] Parallel execution
 - [ ] CLI
 - [ ] Streaming input
-- [ ] Rule DSL
+- [x] Rule DSL (textual Datalog frontend with a parser, a builder API, stratified negation, and aggregates)
 - [ ] Query planner
 - [ ] Magic sets
 

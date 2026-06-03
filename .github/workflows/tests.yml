@@ -2,6 +2,8 @@ name: Run Tests
 
 on:
   workflow_dispatch:
+  schedule: # Run every day at midnight (UTC)
+    - cron: '0 0 * * *'
   push:
     branches:
       - develop
@@ -55,3 +57,10 @@ jobs:
 
       - name: Run tests
         run: zig build test --summary all
+
+      - name: Run Wasm smoke test
+        if: runner.os == 'Linux'
+        run: |
+          zig build wasm
+          cp zig-out/web/zodd.wasm web/zodd.wasm
+          node web/smoke_test.mjs
