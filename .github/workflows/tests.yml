@@ -2,6 +2,7 @@ name: Run Tests
 
 on:
   workflow_dispatch:
+  workflow_call:
   schedule: # Run every day at midnight (UTC)
     - cron: '0 0 * * *'
   push:
