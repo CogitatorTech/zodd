@@ -180,7 +180,7 @@ pub fn main() !void {
 
 You can find the API documentation for the latest release of Zodd [here](https://cogitatortech.github.io/zodd/api/#zodd.lib).
 
-### Examples
+#### Examples
 
 Check out the [examples](examples) directory for example usages of Zodd.
 
