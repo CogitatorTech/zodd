@@ -50,9 +50,7 @@ q(Name, Book, Dollars) :-
   },
   {
     name: "Comparison filters",
-    source: `% Service latencies checked against SLA limits with comparison operators.
-% Comparisons (<, <=, >, >=, =, !=) filter rule bodies; every comparison
-% variable must also occur in a positive body literal.
+    source: `% Service latencies checked against SLA limits.
 %
 % Base facts: observed latencies (milliseconds) per service and probe, and
 % an SLA limit per service.
