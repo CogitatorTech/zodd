@@ -3,9 +3,9 @@
 // --- Example programs -------------------------------------------------------
 
 const EXAMPLES = [
-  {
-    name: "Transitive closure",
-    source: `% A directed graph and its transitive closure.
+    {
+        name: "Transitive closure",
+        source: `% A directed graph and its transitive closure.
 %
 % Base facts: define a directed graph with edges between nodes.
 edge(1, 2).
@@ -21,10 +21,10 @@ path(X, Z) :- path(X, Y), edge(Y, Z).
 % Query: which nodes X are reachable from node 1?
 ?- path(1, X).
 `,
-  },
-  {
-    name: "Bestseller join",
-    source: `% Which bestsellers cost what, and who wrote them?
+    },
+    {
+        name: "Bestseller join",
+        source: `% Which bestsellers cost what, and who wrote them?
 %
 % Base facts: map authors to books, list bestselling books, and associate books with prices.
 author("Ursula K. Le Guin", "A Wizard of Earthsea").
@@ -47,10 +47,10 @@ q(Name, Book, Dollars) :-
 % Query: retrieve the names, books, and prices of all bestselling books.
 ?- q(Name, Book, Dollars).
 `,
-  },
-  {
-    name: "Comparison filters",
-    source: `% Service latencies checked against SLA limits.
+    },
+    {
+        name: "Comparison filters",
+        source: `% Service latencies checked against SLA limits.
 %
 % Base facts: observed latencies (milliseconds) per service and probe, and
 % an SLA limit per service.
@@ -79,10 +79,10 @@ slower_than(A, B) :- worst(A, LA), worst(B, LB), A != B, LA > LB.
 
 % No query: all derived relations are printed.
 `,
-  },
-  {
-    name: "Network reachability",
-    source: `% Which network zones can talk through routing and firewall rules?
+    },
+    {
+        name: "Network reachability",
+        source: `% Which network zones can talk through routing and firewall rules?
 %
 % Base facts: define network links and firewall block rules.
 link("internet", "dmz").
@@ -117,10 +117,10 @@ exposure(Z) :- allowed("internet", Z).
 % Query 2: which zones can be accessed from the DMZ?
 ?- allowed("dmz", Z).
 `,
-  },
-  {
-    name: "Knowledge graph",
-    source: `% A medical ontology: type hierarchy and property inheritance.
+    },
+    {
+        name: "Knowledge graph",
+        source: `% A medical ontology: type hierarchy and property inheritance.
 %
 % Base facts: define disease hierarchy, symptoms, drug targets, and target associations.
 is_a("heart_disease", "cardiovascular").
@@ -168,10 +168,10 @@ side_effect(Drug, S) :- treats(Drug, D), symptom(D, S).
 % Query 2: what are the potential side effects of metoprolol?
 ?- side_effect("metoprolol", S).
 `,
-  },
-  {
-    name: "Data lineage",
-    source: `% PII flowing through an ETL pipeline; anonymization blocks it.
+    },
+    {
+        name: "Data lineage",
+        source: `% PII flowing through an ETL pipeline; anonymization blocks it.
 %
 % Base facts: define initial PII sources, ETL transformations, anonymization boundaries, and public datasets.
 source_pii("raw_users").
@@ -210,10 +210,10 @@ violation(D) :- contains_pii(D), public_dataset(D).
 % Query 2: which datasets violate the privacy policy?
 ?- violation(D).
 `,
-  },
-  {
-    name: "RBAC authorization",
-    source: `% Effective permissions through role inheritance and denials.
+    },
+    {
+        name: "RBAC authorization",
+        source: `% Effective permissions through role inheritance and denials.
 %
 % Base facts: define user roles, role hierarchies, role permissions, and explicit denials.
 user_role("alice", "viewer").
@@ -249,10 +249,10 @@ effective(U, P) :- can_access(U, P), not denied(U, P).
 % Query 2: what are the effective permissions of Bob?
 ?- effective("bob", P).
 `,
-  },
-  {
-    name: "Taint analysis",
-    source: `% Untrusted data flowing to security-sensitive sinks.
+    },
+    {
+        name: "Taint analysis",
+        source: `% Untrusted data flowing to security-sensitive sinks.
 %
 % Base facts: define taint sources, data flow pathways, sanitizers, and security-sensitive sinks.
 source("v1").
@@ -285,10 +285,10 @@ violation(S, V) :- sink(S, V), tainted(V).
 % Query 2: which sinks and variables trigger policy violations?
 ?- violation(S, V).
 `,
-  },
-  {
-    name: "Dependency resolution",
-    source: `% Transitive dependencies and total install size per package.
+    },
+    {
+        name: "Dependency resolution",
+        source: `% Transitive dependencies and total install size per package.
 %
 % Base facts: define direct dependencies and package sizes (in kilobytes or megabytes).
 direct_dep("app", "web_framework").
@@ -330,10 +330,10 @@ total_size(P, sum(S)) :- installs(P, D), size(D, S).
 % Query 2: what is the total installation size of each package?
 ?- total_size(P, S).
 `,
-  },
-  {
-    name: "Package registry",
-    source: `% A package registry: yanked packages taint their dependents.
+    },
+    {
+        name: "Package registry",
+        source: `% A package registry: yanked packages taint their dependents.
 %
 % Base facts: register packages, define direct dependencies, and list yanked (revoked) packages.
 package("app"). package("http"). package("json").
@@ -367,10 +367,10 @@ fanout(P, count(D)) :- needs(P, D).
 % Query 2: what is the dependency fanout count for each package?
 ?- fanout(X, N).
 `,
-  },
-  {
-    name: "Same generation",
-    source: `% Two people are in the same generation if they share an
+    },
+    {
+        name: "Same generation",
+        source: `% Two people are in the same generation if they share an
 % ancestor at the same depth.
 %
 % Base facts: define parent-child relationships.
@@ -388,7 +388,7 @@ sg(X, Y) :- parent(X, P), parent(Y, Q), sg(P, Q).
 % Query: which people are in the same generation as alice?
 ?- sg("alice", X).
 `,
-  },
+    },
 ];
 
 // --- Wasm glue ---------------------------------------------------------------
@@ -398,305 +398,308 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 async function loadWasm() {
-  const imports = {};
-  try {
-    if (typeof WebAssembly.instantiateStreaming === "function") {
-      const { instance } = await WebAssembly.instantiateStreaming(fetch("zodd.wasm"), imports);
-      return instance.exports;
+    const imports = {};
+    try {
+        if (typeof WebAssembly.instantiateStreaming === "function") {
+            const {instance} = await WebAssembly.instantiateStreaming(fetch("zodd.wasm"), imports);
+            return instance.exports;
+        }
+    } catch {
+        // Fall through to ArrayBuffer instantiation (e.g. file:// or MIME issues).
     }
-  } catch {
-    // Fall through to ArrayBuffer instantiation (e.g. file:// or MIME issues).
-  }
-  const bytes = await (await fetch("zodd.wasm")).arrayBuffer();
-  const { instance } = await WebAssembly.instantiate(bytes, imports);
-  return instance.exports;
+    const bytes = await (await fetch("zodd.wasm")).arrayBuffer();
+    const {instance} = await WebAssembly.instantiate(bytes, imports);
+    return instance.exports;
 }
 
 // Calls a Wasm export taking (ptr, len) pairs, one per string argument.
 function wasmCall(fnName, strings) {
-  const buffers = strings.map((s) => encoder.encode(s));
-  const ptrs = buffers.map((bytes) => {
-    // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
-    if (bytes.length === 0) return 0;
-    const ptr = wasm.alloc(bytes.length);
-    if (ptr === 0) throw new Error("Wasm allocation failed");
-    // Views must be created after each call into Wasm: memory growth
-    // detaches previously created typed arrays.
-    new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
-    return ptr;
-  });
-  const args = [];
-  buffers.forEach((bytes, i) => args.push(ptrs[i], bytes.length));
-  const status = wasm[fnName](...args);
-  buffers.forEach((bytes, i) => {
-    if (ptrs[i] !== 0) wasm.dealloc(ptrs[i], bytes.length);
-  });
-  const out = decoder.decode(
-    new Uint8Array(wasm.memory.buffer, wasm.outputPtr(), wasm.outputLen()),
-  );
-  return { status, out };
+    const buffers = strings.map((s) => encoder.encode(s));
+    const ptrs = buffers.map((bytes) => {
+        // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
+        if (bytes.length === 0) return 0;
+        const ptr = wasm.alloc(bytes.length);
+        if (ptr === 0) throw new Error("Wasm allocation failed");
+        // Views must be created after each call into Wasm: memory growth
+        // detaches previously created typed arrays.
+        new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
+        return ptr;
+    });
+    const args = [];
+    buffers.forEach((bytes, i) => args.push(ptrs[i], bytes.length));
+    const status = wasm[fnName](...args);
+    buffers.forEach((bytes, i) => {
+        if (ptrs[i] !== 0) wasm.dealloc(ptrs[i], bytes.length);
+    });
+    const out = decoder.decode(
+        new Uint8Array(wasm.memory.buffer, wasm.outputPtr(), wasm.outputLen()),
+    );
+    return {status, out};
 }
 
 function runProgram(source) {
-  return wasmCall("run", [source]);
+    return wasmCall("run", [source]);
 }
 
 // --- Syntax highlighting ------------------------------------------------------
 
 const TOKEN_RE = new RegExp(
-  [
-    "(%[^\\n]*)", // 1: comment
-    '("(?:\\\\.|[^"\\\\\\n])*"?)', // 2: string
-    "\\b(not|count|sum|min|max)\\b", // 3: keyword
-    "\\b(\\d+)\\b", // 4: number
-    "\\b([A-Z_][A-Za-z0-9_]*)\\b", // 5: variable
-    "\\b([a-z][A-Za-z0-9_]*)\\b", // 6: predicate
-    "(\\?-|:-|<=|>=|!=|[<>=(),.])", // 7: punctuation
-  ].join("|"),
-  "g",
+    [
+        "(%[^\\n]*)", // 1: comment
+        '("(?:\\\\.|[^"\\\\\\n])*"?)', // 2: string
+        "\\b(not|count|sum|min|max)\\b", // 3: keyword
+        "\\b(\\d+)\\b", // 4: number
+        "\\b([A-Z_][A-Za-z0-9_]*)\\b", // 5: variable
+        "\\b([a-z][A-Za-z0-9_]*)\\b", // 6: predicate
+        "(\\?-|:-|<=|>=|!=|[<>=(),.])", // 7: punctuation
+    ].join("|"),
+    "g",
 );
 
 const TOKEN_CLASSES = [
-  "tok-comment", "tok-string", "tok-keyword", "tok-number",
-  "tok-variable", "tok-predicate", "tok-punct",
+    "tok-comment", "tok-string", "tok-keyword", "tok-number",
+    "tok-variable", "tok-predicate", "tok-punct",
 ];
 
 function escapeHtml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function escapeAttr(text) {
-  return escapeHtml(text).replace(/"/g, "&quot;");
+    return escapeHtml(text).replace(/"/g, "&quot;");
 }
 
 function highlight(source, errorLine = null) {
-  let html = "";
-  let last = 0;
-  for (const match of source.matchAll(TOKEN_RE)) {
-    html += escapeHtml(source.slice(last, match.index));
-    for (let group = 1; group <= TOKEN_CLASSES.length; group++) {
-      if (match[group] !== undefined) {
-        html += `<span class="${TOKEN_CLASSES[group - 1]}">${escapeHtml(match[group])}</span>`;
-        break;
-      }
+    let html = "";
+    let last = 0;
+    for (const match of source.matchAll(TOKEN_RE)) {
+        html += escapeHtml(source.slice(last, match.index));
+        for (let group = 1; group <= TOKEN_CLASSES.length; group++) {
+            if (match[group] !== undefined) {
+                html += `<span class="${TOKEN_CLASSES[group - 1]}">${escapeHtml(match[group])}</span>`;
+                break;
+            }
+        }
+        last = match.index + match[0].length;
     }
-    last = match.index + match[0].length;
-  }
-  html += escapeHtml(source.slice(last));
+    html += escapeHtml(source.slice(last));
 
-  if (errorLine !== null) {
-    const lines = html.split("\n");
-    if (errorLine >= 1 && errorLine <= lines.length) {
-      lines[errorLine - 1] = `<span class="line-error">${lines[errorLine - 1]}</span>`;
+    if (errorLine !== null) {
+        const lines = html.split("\n");
+        if (errorLine >= 1 && errorLine <= lines.length) {
+            lines[errorLine - 1] = `<span class="line-error">${lines[errorLine - 1]}</span>`;
+        }
+        return lines.join("\n");
     }
-    return lines.join("\n");
-  }
 
-  return html;
+    return html;
 }
 
 // --- Permalinks ----------------------------------------------------------------
 
 function encodeProgram(source) {
-  const bytes = encoder.encode(source);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const bytes = encoder.encode(source);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function decodeProgram(encoded) {
-  const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(base64);
-  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  return decoder.decode(bytes);
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return decoder.decode(bytes);
 }
 
 function copyToClipboard(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    return navigator.clipboard.writeText(text);
-  }
-  return new Promise((resolve, reject) => {
-    try {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.top = "0";
-      textarea.style.left = "0";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      const successful = document.execCommand("copy");
-      document.body.removeChild(textarea);
-      if (successful) {
-        resolve();
-      } else {
-        reject(new Error("Copy command failed"));
-      }
-    } catch (err) {
-      reject(err);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
     }
-  });
+    return new Promise((resolve, reject) => {
+        try {
+            const textarea = document.createElement("textarea");
+            textarea.value = text;
+            textarea.style.position = "fixed";
+            textarea.style.top = "0";
+            textarea.style.left = "0";
+            textarea.style.opacity = "0";
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            const successful = document.execCommand("copy");
+            document.body.removeChild(textarea);
+            if (successful) {
+                resolve();
+            } else {
+                reject(new Error("Copy command failed"));
+            }
+        } catch (err) {
+            reject(err);
+        }
+    });
 }
 
 // --- UI wiring ------------------------------------------------------------------
 
 let activeErrorLine = null;
 
-let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, viewToggleEl, statusEl, examplesEl, runEl, planEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
+let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl,
+    viewToggleEl, statusEl, examplesEl, runEl, planEl, shareEl, loadEl, downloadEl, clearEl,
+    clearOutputEl, telemetryInfoEl, fileEl, themeEl, helpEl, helpDialogEl, helpCloseEl, aboutEl,
+    aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
 
 function syncHighlight(errorLine = null) {
-  activeErrorLine = errorLine;
-  // A trailing newline keeps the backdrop the same height as the textarea.
-  highlightCodeEl.innerHTML = highlight(sourceEl.value, activeErrorLine) + "\n";
-  syncScroll();
-  updateLineNumbers();
-  updateDropdownSelection();
+    activeErrorLine = errorLine;
+    // A trailing newline keeps the backdrop the same height as the textarea.
+    highlightCodeEl.innerHTML = highlight(sourceEl.value, activeErrorLine) + "\n";
+    syncScroll();
+    updateLineNumbers();
+    updateDropdownSelection();
 }
 
 function syncScroll() {
-  highlightEl.scrollTop = sourceEl.scrollTop;
-  highlightEl.scrollLeft = sourceEl.scrollLeft;
-  const gutter = document.querySelector(".editor-gutter");
-  if (gutter) {
-    gutter.scrollTop = sourceEl.scrollTop;
-  }
+    highlightEl.scrollTop = sourceEl.scrollTop;
+    highlightEl.scrollLeft = sourceEl.scrollLeft;
+    const gutter = document.querySelector(".editor-gutter");
+    if (gutter) {
+        gutter.scrollTop = sourceEl.scrollTop;
+    }
 }
 
 function updateLineNumbers() {
-  const el = document.getElementById("linenos");
-  if (!el) return;
-  const lineCount = sourceEl.value.split("\n").length || 1;
-  let numbers = "";
-  for (let i = 1; i <= lineCount; i++) {
-    numbers += i + "\n";
-  }
-  el.textContent = numbers;
+    const el = document.getElementById("linenos");
+    if (!el) return;
+    const lineCount = sourceEl.value.split("\n").length || 1;
+    let numbers = "";
+    for (let i = 1; i <= lineCount; i++) {
+        numbers += i + "\n";
+    }
+    el.textContent = numbers;
 }
 
 function updateDropdownSelection() {
-  if (typeof document === "undefined" || !examplesEl) return;
-  const currentSource = sourceEl.value;
-  let matchedIndex = -1;
-  for (let i = 0; i < EXAMPLES.length; i++) {
-    if (EXAMPLES[i].source === currentSource) {
-      matchedIndex = i;
-      break;
+    if (typeof document === "undefined" || !examplesEl) return;
+    const currentSource = sourceEl.value;
+    let matchedIndex = -1;
+    for (let i = 0; i < EXAMPLES.length; i++) {
+        if (EXAMPLES[i].source === currentSource) {
+            matchedIndex = i;
+            break;
+        }
     }
-  }
-  if (matchedIndex !== -1) {
-    examplesEl.value = String(matchedIndex);
-  } else {
-    examplesEl.value = "custom";
-  }
+    if (matchedIndex !== -1) {
+        examplesEl.value = String(matchedIndex);
+    } else {
+        examplesEl.value = "custom";
+    }
 }
 
 function setSource(text) {
-  sourceEl.value = text;
-  sourceEl.scrollTop = 0;
-  sourceEl.scrollLeft = 0;
-  syncHighlight(null);
-  localStorage.setItem("zodd-source", text);
+    sourceEl.value = text;
+    sourceEl.scrollTop = 0;
+    sourceEl.scrollLeft = 0;
+    syncHighlight(null);
+    localStorage.setItem("zodd-source", text);
 }
 
 function setStatus(text, kind) {
-  statusEl.textContent = text;
-  statusEl.className = kind || "";
+    statusEl.textContent = text;
+    statusEl.className = kind || "";
 }
 
 function execute() {
-  if (!wasm) return;
-  const started = performance.now();
-  let result;
-  try {
-    result = runProgram(sourceEl.value);
-  } catch (err) {
-    outputEl.textContent = `internal error: ${err}`;
-    outputEl.classList.add("error");
-    outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error);">${escapeHtml("internal error: " + err)}</div>`;
-    setStatus("trap", "error");
-    telemetryInfoEl.textContent = "Internal Trap";
-    return;
-  }
-  const elapsed = (performance.now() - started).toFixed(1);
-  outputEl.textContent = result.out || "(no output)";
-  outputEl.classList.toggle("error", result.status !== 0);
-
-  if (result.status === 0) {
-    if (viewToggleEl) viewToggleEl.classList.remove("hidden");
-    setStatus("SUCCESS", "ok");
-    telemetryInfoEl.textContent = `Duration: ${elapsed} ms | Size: ${result.out.length} chars`;
-    outputTableEl.innerHTML = parseOutputToTables(result.out);
-    syncHighlight(null);
-  } else {
-    if (viewToggleEl) viewToggleEl.classList.add("hidden");
-    setView("text");
-    setStatus("error", "error");
-    telemetryInfoEl.textContent = `Failed in ${elapsed} ms`;
-    outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error); white-space: pre-wrap; font-family: var(--mono);">${escapeHtml(result.out)}</div>`;
-
-    // Attempt to parse the error line from the diagnostic message (formatted as "line:col: message")
-    const match = result.out.match(/^(\d+):(\d+):/);
-    if (match) {
-      const errorLine = parseInt(match[1], 10);
-      syncHighlight(errorLine);
-    } else {
-      syncHighlight(null);
+    if (!wasm) return;
+    const started = performance.now();
+    let result;
+    try {
+        result = runProgram(sourceEl.value);
+    } catch (err) {
+        outputEl.textContent = `internal error: ${err}`;
+        outputEl.classList.add("error");
+        outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error);">${escapeHtml("internal error: " + err)}</div>`;
+        setStatus("trap", "error");
+        telemetryInfoEl.textContent = "Internal Trap";
+        return;
     }
-  }
+    const elapsed = (performance.now() - started).toFixed(1);
+    outputEl.textContent = result.out || "(no output)";
+    outputEl.classList.toggle("error", result.status !== 0);
+
+    if (result.status === 0) {
+        if (viewToggleEl) viewToggleEl.classList.remove("hidden");
+        setStatus("SUCCESS", "ok");
+        telemetryInfoEl.textContent = `Duration: ${elapsed} ms | Size: ${result.out.length} chars`;
+        outputTableEl.innerHTML = parseOutputToTables(result.out);
+        syncHighlight(null);
+    } else {
+        if (viewToggleEl) viewToggleEl.classList.add("hidden");
+        setView("text");
+        setStatus("error", "error");
+        telemetryInfoEl.textContent = `Failed in ${elapsed} ms`;
+        outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error); white-space: pre-wrap; font-family: var(--mono);">${escapeHtml(result.out)}</div>`;
+
+        // Attempt to parse the error line from the diagnostic message (formatted as "line:col: message")
+        const match = result.out.match(/^(\d+):(\d+):/);
+        if (match) {
+            const errorLine = parseInt(match[1], 10);
+            syncHighlight(errorLine);
+        } else {
+            syncHighlight(null);
+        }
+    }
 }
 
 // Shows engine-generated explanation text (a plan or a proof tree) in the
 // text view. Clears stale table results and hides the view toggle.
 function showExplanation(result, okStatus) {
-  outputEl.textContent = result.out || "(no output)";
-  outputEl.classList.toggle("error", result.status !== 0);
-  outputTableEl.innerHTML = ""; // Clear stale table data
-  if (viewToggleEl) viewToggleEl.classList.add("hidden"); // Hide the view toggle
-  telemetryInfoEl.textContent = ""; // Clear stale telemetry info
-  setView("text");
-  if (result.status === 0) {
-    setStatus(okStatus, "ok");
-  } else {
-    setStatus("error", "error");
-  }
+    outputEl.textContent = result.out || "(no output)";
+    outputEl.classList.toggle("error", result.status !== 0);
+    outputTableEl.innerHTML = ""; // Clear stale table data
+    if (viewToggleEl) viewToggleEl.classList.add("hidden"); // Hide the view toggle
+    telemetryInfoEl.textContent = ""; // Clear stale telemetry info
+    setView("text");
+    if (result.status === 0) {
+        setStatus(okStatus, "ok");
+    } else {
+        setStatus("error", "error");
+    }
 }
 
 function showPlan() {
-  if (!wasm) return;
-  try {
-    showExplanation(wasmCall("explainPlan", [sourceEl.value]), "plan");
-  } catch (err) {
-    outputEl.textContent = `internal error: ${err}`;
-    outputEl.classList.add("error");
-    setStatus("trap", "error");
-  }
+    if (!wasm) return;
+    try {
+        showExplanation(wasmCall("explainPlan", [sourceEl.value]), "plan");
+    } catch (err) {
+        outputEl.textContent = `internal error: ${err}`;
+        outputEl.classList.add("error");
+        setStatus("trap", "error");
+    }
 }
 
 function explainAtom(atom) {
-  if (!wasm) return;
-  try {
-    showExplanation(wasmCall("explain", [sourceEl.value, atom]), "explained");
-  } catch (err) {
-    outputEl.textContent = `internal error: ${err}`;
-    outputEl.classList.add("error");
-    setStatus("trap", "error");
-  }
+    if (!wasm) return;
+    try {
+        showExplanation(wasmCall("explain", [sourceEl.value, atom]), "explained");
+    } catch (err) {
+        outputEl.textContent = `internal error: ${err}`;
+        outputEl.classList.add("error");
+        setStatus("trap", "error");
+    }
 }
 
 function share() {
-  const url = new URL(window.location.href);
-  url.hash = "program=" + encodeProgram(sourceEl.value);
-  history.replaceState(null, "", url);
-  copyToClipboard(url.href)
-    .then(() => setStatus("link copied", "ok"))
-    .catch(() => setStatus("link in address bar", "ok"));
+    const url = new URL(window.location.href);
+    url.hash = "program=" + encodeProgram(sourceEl.value);
+    history.replaceState(null, "", url);
+    copyToClipboard(url.href)
+        .then(() => setStatus("link copied", "ok"))
+        .catch(() => setStatus("link in address bar", "ok"));
 }
 
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  themeEl.textContent = theme === "light" ? "☾" : "☀";
-  themeEl.title = theme === "light" ? "Switch to the dark theme" : "Switch to the light theme";
+    document.documentElement.dataset.theme = theme;
+    themeEl.textContent = theme === "light" ? "☾" : "☀";
+    themeEl.title = theme === "light" ? "Switch to the dark theme" : "Switch to the light theme";
 }
 
 // --- Output View Toggling & Parsing -------------------------------------------
@@ -704,587 +707,602 @@ function applyTheme(theme) {
 let currentView = "text"; // "text" or "table"
 
 function setView(view) {
-  currentView = view;
-  if (view === "table") {
-    viewTableEl.classList.add("active");
-    viewTextEl.classList.remove("active");
-    outputEl.classList.add("hidden");
-    outputTableEl.classList.remove("hidden");
-  } else {
-    viewTextEl.classList.add("active");
-    viewTableEl.classList.remove("active");
-    outputTableEl.classList.add("hidden");
-    outputEl.classList.remove("hidden");
-  }
+    currentView = view;
+    if (view === "table") {
+        viewTableEl.classList.add("active");
+        viewTextEl.classList.remove("active");
+        outputEl.classList.add("hidden");
+        outputTableEl.classList.remove("hidden");
+    } else {
+        viewTextEl.classList.add("active");
+        viewTableEl.classList.remove("active");
+        outputTableEl.classList.add("hidden");
+        outputEl.classList.remove("hidden");
+    }
 }
 
 function parseOutputToTables(text) {
-  if (!text || text.trim() === "" || text.trim() === "(no results)" || text.trim() === "(no output)") {
-    return `<div class="output-table-no-results">No results returned.</div>`;
-  }
-
-  const lines = text.split("\n");
-  const parts = [];
-  let currentTable = null;
-  let currentText = [];
-
-  function flushText() {
-    if (currentText.length > 0) {
-      // Remove trailing empty line if it is just a spacing artifact
-      if (currentText[currentText.length - 1] === "") {
-        currentText.pop();
-      }
-      if (currentText.length > 0) {
-        parts.push({
-          type: "text",
-          content: currentText.join("\n")
-        });
-      }
-      currentText = [];
+    if (!text || text.trim() === "" || text.trim() === "(no results)" || text.trim() === "(no output)") {
+        return `<div class="output-table-no-results">No results returned.</div>`;
     }
-  }
 
-  function flushTable() {
-    if (currentTable) {
-      parts.push({
-        type: "table",
-        title: currentTable.title,
-        rows: currentTable.rows,
-        truncated: currentTable.truncated
-      });
-      currentTable = null;
+    const lines = text.split("\n");
+    const parts = [];
+    let currentTable = null;
+    let currentText = [];
+
+    function flushText() {
+        if (currentText.length > 0) {
+            // Remove trailing empty line if it is just a spacing artifact
+            if (currentText[currentText.length - 1] === "") {
+                currentText.pop();
+            }
+            if (currentText.length > 0) {
+                parts.push({
+                    type: "text",
+                    content: currentText.join("\n")
+                });
+            }
+            currentText = [];
+        }
     }
-  }
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    if (!trimmed) {
-      if (currentTable) {
-        continue;
-      }
-      if (currentText.length > 0) {
+    function flushTable() {
+        if (currentTable) {
+            parts.push({
+                type: "table",
+                title: currentTable.title,
+                rows: currentTable.rows,
+                truncated: currentTable.truncated
+            });
+            currentTable = null;
+        }
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed) {
+            if (currentTable) {
+                continue;
+            }
+            if (currentText.length > 0) {
+                currentText.push(line);
+            }
+            continue;
+        }
+
+        // Check if the line is a block header: e.g. "pred_name:" or "?- q:"
+        if (trimmed.endsWith(":") && !trimmed.startsWith("(")) {
+            flushText();
+            flushTable();
+            const title = trimmed.slice(0, -1).trim();
+            currentTable = {
+                title: title,
+                rows: [],
+                truncated: null
+            };
+            continue;
+        }
+
+        // Check if the line is a tuple: e.g. "(1, 2)" or "  (1, 2)"
+        if (trimmed.startsWith("(") && trimmed.endsWith(")") && trimmed !== "(no results)" && trimmed !== "(no output)") {
+            flushText();
+            const content = trimmed.slice(1, -1).trim();
+            const rowData = parseTuple(content);
+            if (currentTable) {
+                currentTable.rows.push(rowData);
+            } else {
+                currentTable = {title: "Results", rows: [rowData], truncated: null};
+            }
+            continue;
+        }
+
+        // Check if it is a truncation warning
+        if (trimmed.startsWith("... (output truncated")) {
+            if (currentTable) {
+                currentTable.truncated = trimmed;
+            } else {
+                currentText.push(line);
+            }
+            continue;
+        }
+
+        // Otherwise, it is non-tabular text
+        flushTable();
         currentText.push(line);
-      }
-      continue;
     }
 
-    // Check if the line is a block header: e.g. "pred_name:" or "?- q:"
-    if (trimmed.endsWith(":") && !trimmed.startsWith("(")) {
-      flushText();
-      flushTable();
-      const title = trimmed.slice(0, -1).trim();
-      currentTable = {
-        title: title,
-        rows: [],
-        truncated: null
-      };
-      continue;
-    }
-
-    // Check if the line is a tuple: e.g. "(1, 2)" or "  (1, 2)"
-    if (trimmed.startsWith("(") && trimmed.endsWith(")") && trimmed !== "(no results)" && trimmed !== "(no output)") {
-      flushText();
-      const content = trimmed.slice(1, -1).trim();
-      const rowData = parseTuple(content);
-      if (currentTable) {
-        currentTable.rows.push(rowData);
-      } else {
-        currentTable = { title: "Results", rows: [rowData], truncated: null };
-      }
-      continue;
-    }
-
-    // Check if it is a truncation warning
-    if (trimmed.startsWith("... (output truncated")) {
-      if (currentTable) {
-        currentTable.truncated = trimmed;
-      } else {
-        currentText.push(line);
-      }
-      continue;
-    }
-
-    // Otherwise, it is non-tabular text
+    flushText();
     flushTable();
-    currentText.push(line);
-  }
 
-  flushText();
-  flushTable();
-
-  if (parts.length === 0) {
-    return `<div class="output-table-no-results">No results.</div>`;
-  }
-
-  let html = "";
-  for (const part of parts) {
-    if (part.type === "text") {
-      html += `<pre class="output-table-text-block">${escapeHtml(part.content)}</pre>`;
-    } else if (part.type === "table") {
-      html += `<div class="output-table-group">`;
-      html += `<div class="output-table-header-row">`;
-      html += `<h4 class="output-table-title">${escapeHtml(part.title)}</h4>`;
-      if (part.rows.length > 0) {
-        html += `<button class="copy-table-btn" title="Copy table to clipboard">Copy</button>`;
-      }
-      html += `</div>`;
-      if (part.rows.length === 0) {
-        html += `<div class="output-table-no-results">No rows.</div>`;
-      } else {
-        html += `<table class="output-table-el">`;
-        const arity = part.rows[0].length;
-        html += `<thead><tr>`;
-        html += `<th class="index-col">#</th>`;
-        for (let c = 1; c <= arity; c++) {
-          html += `<th>Col ${c}</th>`;
-        }
-        html += `</tr></thead>`;
-
-        // Rows of a named predicate carry their atom text so a click can
-        // ask the engine to explain the tuple's derivation.
-        const pred = part.title.replace(/^\?-\s*/, "");
-        const explainable = /^[a-z][A-Za-z0-9_]*$/.test(pred);
-        html += `<tbody>`;
-        for (let r = 0; r < part.rows.length; r++) {
-          const row = part.rows[r];
-          if (explainable) {
-            const atom = `${pred}(${row.join(", ")})`;
-            html += `<tr data-atom="${escapeAttr(atom)}" title="Click to explain how this tuple was derived">`;
-          } else {
-            html += `<tr>`;
-          }
-          html += `<td class="index-col">${r + 1}</td>`;
-          for (const val of row) {
-            html += `<td>${escapeHtml(cleanValue(val))}</td>`;
-          }
-          html += `</tr>`;
-        }
-        html += `</tbody>`;
-        html += `</table>`;
-      }
-      if (part.truncated) {
-        html += `<div class="output-table-no-results">${escapeHtml(part.truncated)}</div>`;
-      }
-      html += `</div>`;
+    if (parts.length === 0) {
+        return `<div class="output-table-no-results">No results.</div>`;
     }
-  }
 
-  return html;
+    let html = "";
+    for (const part of parts) {
+        if (part.type === "text") {
+            html += `<pre class="output-table-text-block">${escapeHtml(part.content)}</pre>`;
+        } else if (part.type === "table") {
+            html += `<div class="output-table-group">`;
+            html += `<div class="output-table-header-row">`;
+            html += `<h4 class="output-table-title">${escapeHtml(part.title)}</h4>`;
+            if (part.rows.length > 0) {
+                html += `<button class="copy-table-btn" title="Copy table to clipboard">Copy</button>`;
+            }
+            html += `</div>`;
+            if (part.rows.length === 0) {
+                html += `<div class="output-table-no-results">No rows.</div>`;
+            } else {
+                html += `<table class="output-table-el">`;
+                const arity = part.rows[0].length;
+                html += `<thead><tr>`;
+                html += `<th class="index-col">#</th>`;
+                for (let c = 1; c <= arity; c++) {
+                    html += `<th>Col ${c}</th>`;
+                }
+                html += `</tr></thead>`;
+
+                // Rows of a named predicate carry their atom text so a click can
+                // ask the engine to explain the tuple's derivation.
+                const pred = part.title.replace(/^\?-\s*/, "");
+                const explainable = /^[a-z][A-Za-z0-9_]*$/.test(pred);
+                html += `<tbody>`;
+                for (let r = 0; r < part.rows.length; r++) {
+                    const row = part.rows[r];
+                    if (explainable) {
+                        const atom = `${pred}(${row.join(", ")})`;
+                        html += `<tr data-atom="${escapeAttr(atom)}" title="Click to explain how this tuple was derived">`;
+                    } else {
+                        html += `<tr>`;
+                    }
+                    html += `<td class="index-col">${r + 1}</td>`;
+                    for (const val of row) {
+                        html += `<td>${escapeHtml(cleanValue(val))}</td>`;
+                    }
+                    html += `</tr>`;
+                }
+                html += `</tbody>`;
+                html += `</table>`;
+            }
+            if (part.truncated) {
+                html += `<div class="output-table-no-results">${escapeHtml(part.truncated)}</div>`;
+            }
+            html += `</div>`;
+        }
+    }
+
+    return html;
 }
 
 function parseTuple(str) {
-  if (!str.trim()) return [];
-  const elements = [];
-  let current = "";
-  let inQuotes = false;
-  let escape = false;
-  for (let i = 0; i < str.length; i++) {
-    const char = str[i];
-    if (escape) {
-      current += char;
-      escape = false;
-    } else if (char === '\\') {
-      escape = true;
-    } else if (char === '"') {
-      inQuotes = !inQuotes;
-      current += char;
-    } else if (char === ',' && !inQuotes) {
-      elements.push(current.trim());
-      current = "";
-    } else {
-      current += char;
+    if (!str.trim()) return [];
+    const elements = [];
+    let current = "";
+    let inQuotes = false;
+    let escape = false;
+    for (let i = 0; i < str.length; i++) {
+        const char = str[i];
+        if (escape) {
+            current += char;
+            escape = false;
+        } else if (char === '\\') {
+            escape = true;
+        } else if (char === '"') {
+            inQuotes = !inQuotes;
+            current += char;
+        } else if (char === ',' && !inQuotes) {
+            elements.push(current.trim());
+            current = "";
+        } else {
+            current += char;
+        }
     }
-  }
-  elements.push(current.trim());
-  return elements;
+    elements.push(current.trim());
+    return elements;
 }
 
 function cleanValue(val) {
-  if (val.startsWith('"') && val.endsWith('"')) {
-    return val.slice(1, -1).replace(/\\(.)/g, (match, g1) => {
-      switch (g1) {
-        case "n": return "\n";
-        case "t": return "\t";
-        case '"': return '"';
-        case '\\': return '\\';
-        default: return g1;
-      }
-    });
-  }
-  return val;
+    if (val.startsWith('"') && val.endsWith('"')) {
+        return val.slice(1, -1).replace(/\\(.)/g, (match, g1) => {
+            switch (g1) {
+                case "n":
+                    return "\n";
+                case "t":
+                    return "\t";
+                case '"':
+                    return '"';
+                case '\\':
+                    return '\\';
+                default:
+                    return g1;
+            }
+        });
+    }
+    return val;
 }
 
 // Wrap all DOM execution & side-effects
 if (typeof document !== "undefined") {
-  sourceEl = document.getElementById("source");
-  highlightEl = document.getElementById("highlight");
-  highlightCodeEl = document.getElementById("highlight-code");
-  outputEl = document.getElementById("output");
-  outputTableEl = document.getElementById("output-table");
-  viewTextEl = document.getElementById("view-text");
-  viewTableEl = document.getElementById("view-table");
-  viewToggleEl = document.getElementById("view-toggle");
-  statusEl = document.getElementById("status");
-  examplesEl = document.getElementById("examples");
-  runEl = document.getElementById("run");
-  planEl = document.getElementById("plan");
-  shareEl = document.getElementById("share");
-  loadEl = document.getElementById("load");
-  downloadEl = document.getElementById("download");
-  clearEl = document.getElementById("clear");
-  clearOutputEl = document.getElementById("clear-output");
-  telemetryInfoEl = document.getElementById("telemetry-info");
-  fileEl = document.getElementById("file");
-  themeEl = document.getElementById("theme");
-  aboutEl = document.getElementById("about");
-  aboutDialogEl = document.getElementById("about-dialog");
-  aboutCloseEl = document.getElementById("about-close");
-  dividerEl = document.getElementById("divider");
-  editorPane = document.querySelector(".editor-pane");
+    sourceEl = document.getElementById("source");
+    highlightEl = document.getElementById("highlight");
+    highlightCodeEl = document.getElementById("highlight-code");
+    outputEl = document.getElementById("output");
+    outputTableEl = document.getElementById("output-table");
+    viewTextEl = document.getElementById("view-text");
+    viewTableEl = document.getElementById("view-table");
+    viewToggleEl = document.getElementById("view-toggle");
+    statusEl = document.getElementById("status");
+    examplesEl = document.getElementById("examples");
+    runEl = document.getElementById("run");
+    planEl = document.getElementById("plan");
+    shareEl = document.getElementById("share");
+    loadEl = document.getElementById("load");
+    downloadEl = document.getElementById("download");
+    clearEl = document.getElementById("clear");
+    clearOutputEl = document.getElementById("clear-output");
+    telemetryInfoEl = document.getElementById("telemetry-info");
+    fileEl = document.getElementById("file");
+    themeEl = document.getElementById("theme");
+    helpEl = document.getElementById("help");
+    helpDialogEl = document.getElementById("help-dialog");
+    helpCloseEl = document.getElementById("help-close");
+    aboutEl = document.getElementById("about");
+    aboutDialogEl = document.getElementById("about-dialog");
+    aboutCloseEl = document.getElementById("about-close");
+    dividerEl = document.getElementById("divider");
+    editorPane = document.querySelector(".editor-pane");
 
-  // Examples dropdown.
-  const customOption = document.createElement("option");
-  customOption.value = "custom";
-  customOption.textContent = "[Custom / Edited]";
-  customOption.disabled = true;
-  customOption.hidden = true;
-  examplesEl.appendChild(customOption);
+    // Examples dropdown.
+    const customOption = document.createElement("option");
+    customOption.value = "custom";
+    customOption.textContent = "[Custom / Edited]";
+    customOption.disabled = true;
+    customOption.hidden = true;
+    examplesEl.appendChild(customOption);
 
-  for (const [index, example] of EXAMPLES.entries()) {
-    const option = document.createElement("option");
-    option.value = String(index);
-    option.textContent = example.name;
-    examplesEl.appendChild(option);
-  }
-  examplesEl.addEventListener("change", () => {
-    setSource(EXAMPLES[Number(examplesEl.value)].source);
-  });
+    for (const [index, example] of EXAMPLES.entries()) {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = example.name;
+        examplesEl.appendChild(option);
+    }
+    examplesEl.addEventListener("change", () => {
+        setSource(EXAMPLES[Number(examplesEl.value)].source);
+    });
 
-  // Editor events.
-  sourceEl.addEventListener("input", () => {
-    syncHighlight(null);
-    localStorage.setItem("zodd-source", sourceEl.value);
-  });
-  sourceEl.addEventListener("scroll", syncScroll);
-  sourceEl.addEventListener("keydown", (event) => {
-    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      const start = sourceEl.selectionStart;
-      const end = sourceEl.selectionEnd;
-      const val = sourceEl.value;
-      sourceEl.value = val.substring(0, start) + "    " + val.substring(end);
-      sourceEl.selectionStart = sourceEl.selectionEnd = start + 4;
-      syncHighlight(null);
-      localStorage.setItem("zodd-source", sourceEl.value);
-    } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      const start = sourceEl.selectionStart;
-      const end = sourceEl.selectionEnd;
-      if (start === end) {
-        const val = sourceEl.value;
-        const lastNewline = val.lastIndexOf("\n", start - 1);
-        const lineStart = lastNewline + 1;
-        const currentLine = val.substring(lineStart, start);
-        const indentMatch = currentLine.match(/^\s*/);
-        const indent = indentMatch ? indentMatch[0] : "";
-        if (indent.length > 0) {
-          event.preventDefault();
-          const insert = "\n" + indent;
-          sourceEl.value = val.substring(0, start) + insert + val.substring(start);
-          sourceEl.selectionStart = sourceEl.selectionEnd = start + insert.length;
-          syncHighlight(null);
-          localStorage.setItem("zodd-source", sourceEl.value);
+    // Editor events.
+    sourceEl.addEventListener("input", () => {
+        syncHighlight(null);
+        localStorage.setItem("zodd-source", sourceEl.value);
+    });
+    sourceEl.addEventListener("scroll", syncScroll);
+    sourceEl.addEventListener("keydown", (event) => {
+        if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            event.preventDefault();
+            const start = sourceEl.selectionStart;
+            const end = sourceEl.selectionEnd;
+            const val = sourceEl.value;
+            sourceEl.value = val.substring(0, start) + "    " + val.substring(end);
+            sourceEl.selectionStart = sourceEl.selectionEnd = start + 4;
+            syncHighlight(null);
+            localStorage.setItem("zodd-source", sourceEl.value);
+        } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            const start = sourceEl.selectionStart;
+            const end = sourceEl.selectionEnd;
+            if (start === end) {
+                const val = sourceEl.value;
+                const lastNewline = val.lastIndexOf("\n", start - 1);
+                const lineStart = lastNewline + 1;
+                const currentLine = val.substring(lineStart, start);
+                const indentMatch = currentLine.match(/^\s*/);
+                const indent = indentMatch ? indentMatch[0] : "";
+                if (indent.length > 0) {
+                    event.preventDefault();
+                    const insert = "\n" + indent;
+                    sourceEl.value = val.substring(0, start) + insert + val.substring(start);
+                    sourceEl.selectionStart = sourceEl.selectionEnd = start + insert.length;
+                    syncHighlight(null);
+                    localStorage.setItem("zodd-source", sourceEl.value);
+                }
+            }
+        } else if ((event.key === "(" || event.key === "[" || event.key === "{" || event.key === '"') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            event.preventDefault();
+            const start = sourceEl.selectionStart;
+            const end = sourceEl.selectionEnd;
+            const val = sourceEl.value;
+            const pairs = {"(": ")", "[": "]", "{": "}", '"': '"'};
+            const closingChar = pairs[event.key];
+            if (start !== end) {
+                const selectedText = val.substring(start, end);
+                const insert = event.key + selectedText + closingChar;
+                sourceEl.value = val.substring(0, start) + insert + val.substring(end);
+                sourceEl.selectionStart = start + 1;
+                sourceEl.selectionEnd = end + 1;
+            } else {
+                if (event.key === '"' && val.charAt(start) === '"') {
+                    sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
+                } else {
+                    const insert = event.key + closingChar;
+                    sourceEl.value = val.substring(0, start) + insert + val.substring(start);
+                    sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
+                }
+            }
+            syncHighlight(null);
+            localStorage.setItem("zodd-source", sourceEl.value);
+        } else if ((event.key === ")" || event.key === "]" || event.key === "}" || event.key === '"') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            const start = sourceEl.selectionStart;
+            const val = sourceEl.value;
+            if (start === sourceEl.selectionEnd && val.charAt(start) === event.key) {
+                event.preventDefault();
+                sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
+            }
+        } else if (event.key === "Backspace" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            const start = sourceEl.selectionStart;
+            const end = sourceEl.selectionEnd;
+            if (start === end && start > 0) {
+                const val = sourceEl.value;
+                const charBefore = val.charAt(start - 1);
+                const charAfter = val.charAt(start);
+                if (
+                    (charBefore === "(" && charAfter === ")") ||
+                    (charBefore === "[" && charAfter === "]") ||
+                    (charBefore === "{" && charAfter === "}") ||
+                    (charBefore === '"' && charAfter === '"')
+                ) {
+                    event.preventDefault();
+                    sourceEl.value = val.substring(0, start - 1) + val.substring(start + 1);
+                    sourceEl.selectionStart = sourceEl.selectionEnd = start - 1;
+                    syncHighlight(null);
+                    localStorage.setItem("zodd-source", sourceEl.value);
+                }
+            }
+        } else if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+            event.preventDefault();
+            const start = sourceEl.selectionStart;
+            const end = sourceEl.selectionEnd;
+            const val = sourceEl.value;
+            const lastNewline = val.lastIndexOf("\n", start - 1);
+            const lineStart = lastNewline + 1;
+            const nextNewline = val.indexOf("\n", end);
+            const lineEnd = nextNewline === -1 ? val.length : nextNewline;
+            const lineText = val.substring(lineStart, lineEnd);
+            let newLineText;
+            let offset;
+            if (lineText.trim().startsWith("%")) {
+                newLineText = lineText.replace(/^\s*% ?/, (match) => {
+                    const indent = match.match(/^\s*/)[0];
+                    return indent;
+                });
+                offset = newLineText.length - lineText.length;
+            } else {
+                const indentMatch = lineText.match(/^\s*/);
+                const indent = indentMatch ? indentMatch[0] : "";
+                const content = lineText.substring(indent.length);
+                newLineText = indent + "% " + content;
+                offset = 2;
+            }
+            sourceEl.value = val.substring(0, lineStart) + newLineText + val.substring(lineEnd);
+            sourceEl.selectionStart = start + offset;
+            sourceEl.selectionEnd = end + offset;
+            syncHighlight(null);
+            localStorage.setItem("zodd-source", sourceEl.value);
+        } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            event.preventDefault();
+            execute();
         }
-      }
-    } else if ((event.key === "(" || event.key === "[" || event.key === "{" || event.key === '"') && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      const start = sourceEl.selectionStart;
-      const end = sourceEl.selectionEnd;
-      const val = sourceEl.value;
-      const pairs = { "(": ")", "[": "]", "{": "}", '"': '"' };
-      const closingChar = pairs[event.key];
-      if (start !== end) {
-        const selectedText = val.substring(start, end);
-        const insert = event.key + selectedText + closingChar;
-        sourceEl.value = val.substring(0, start) + insert + val.substring(end);
-        sourceEl.selectionStart = start + 1;
-        sourceEl.selectionEnd = end + 1;
-      } else {
-        if (event.key === '"' && val.charAt(start) === '"') {
-          sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
-        } else {
-          const insert = event.key + closingChar;
-          sourceEl.value = val.substring(0, start) + insert + val.substring(start);
-          sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
-        }
-      }
-      syncHighlight(null);
-      localStorage.setItem("zodd-source", sourceEl.value);
-    } else if ((event.key === ")" || event.key === "]" || event.key === "}" || event.key === '"') && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      const start = sourceEl.selectionStart;
-      const val = sourceEl.value;
-      if (start === sourceEl.selectionEnd && val.charAt(start) === event.key) {
+    });
+
+    runEl.addEventListener("click", execute);
+    planEl.addEventListener("click", showPlan);
+    shareEl.addEventListener("click", share);
+
+    downloadEl.addEventListener("click", () => {
+        const blob = new Blob([sourceEl.value], {type: "text/plain;charset=utf-8"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "program.dl";
+        a.click();
+        URL.revokeObjectURL(url);
+        setStatus("downloaded", "ok");
+    });
+
+    clearEl.addEventListener("click", () => {
+        setSource("");
+        setStatus("CLEARED", "cleared");
+    });
+
+    clearOutputEl.addEventListener("click", () => {
+        outputEl.textContent = "";
+        outputEl.classList.remove("error");
+        outputTableEl.innerHTML = "";
+        if (viewToggleEl) viewToggleEl.classList.add("hidden");
+        setStatus("CLEARED", "cleared");
+        telemetryInfoEl.textContent = "";
+    });
+
+    // Loading a Datalog script from a file.
+    loadEl.addEventListener("click", () => fileEl.click());
+    fileEl.addEventListener("change", async () => {
+        const file = fileEl.files[0];
+        if (!file) return;
+        setSource(await file.text());
+        // Reset so selecting the same file again still fires a change event.
+        fileEl.value = "";
+        execute();
+    });
+
+    applyTheme(localStorage.getItem("zodd-theme") ?? "dark");
+
+    themeEl.addEventListener("click", () => {
+        const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+        localStorage.setItem("zodd-theme", next);
+        applyTheme(next);
+    });
+
+    // Help dialog.
+    helpEl.addEventListener("click", () => helpDialogEl.showModal());
+    helpCloseEl.addEventListener("click", () => helpDialogEl.close());
+    helpDialogEl.addEventListener("click", (event) => {
+        if (event.target === helpDialogEl) helpDialogEl.close();
+    });
+
+    // About dialog.
+    aboutEl.addEventListener("click", () => aboutDialogEl.showModal());
+    aboutCloseEl.addEventListener("click", () => aboutDialogEl.close());
+    aboutDialogEl.addEventListener("click", (event) => {
+        // A click on the backdrop targets the dialog element itself.
+        if (event.target === aboutDialogEl) aboutDialogEl.close();
+    });
+
+    // Resizable split view.
+    dividerEl.addEventListener("pointerdown", (event) => {
         event.preventDefault();
-        sourceEl.selectionStart = sourceEl.selectionEnd = start + 1;
-      }
-    } else if (event.key === "Backspace" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      const start = sourceEl.selectionStart;
-      const end = sourceEl.selectionEnd;
-      if (start === end && start > 0) {
-        const val = sourceEl.value;
-        const charBefore = val.charAt(start - 1);
-        const charAfter = val.charAt(start);
-        if (
-          (charBefore === "(" && charAfter === ")") ||
-          (charBefore === "[" && charAfter === "]") ||
-          (charBefore === "{" && charAfter === "}") ||
-          (charBefore === '"' && charAfter === '"')
-        ) {
-          event.preventDefault();
-          sourceEl.value = val.substring(0, start - 1) + val.substring(start + 1);
-          sourceEl.selectionStart = sourceEl.selectionEnd = start - 1;
-          syncHighlight(null);
-          localStorage.setItem("zodd-source", sourceEl.value);
+        dividerEl.classList.add("dragging");
+        dividerEl.setPointerCapture(event.pointerId);
+        const onMove = (move) => {
+            const bounds = document.getElementById("split").getBoundingClientRect();
+            const fraction = Math.min(0.85, Math.max(0.15, (move.clientX - bounds.left) / bounds.width));
+            editorPane.style.flexBasis = `${(fraction * 100).toFixed(1)}%`;
+        };
+        const onUp = () => {
+            dividerEl.classList.remove("dragging");
+            dividerEl.releasePointerCapture(event.pointerId);
+            dividerEl.removeEventListener("pointermove", onMove);
+            dividerEl.removeEventListener("pointerup", onUp);
+            dividerEl.removeEventListener("pointercancel", onUp);
+        };
+        dividerEl.addEventListener("pointermove", onMove);
+        dividerEl.addEventListener("pointerup", onUp);
+        dividerEl.addEventListener("pointercancel", onUp);
+    });
+
+    // Initial program: a permalink if present, the autosaved progress if available, or the first example otherwise.
+    (function initSource() {
+        const hash = window.location.hash;
+        if (hash.startsWith("#program=")) {
+            try {
+                setSource(decodeProgram(hash.slice("#program=".length)));
+                return;
+            } catch {
+                // Bad permalink; fall back to the first example.
+            }
         }
-      }
-    } else if ((event.ctrlKey || event.metaKey) && event.key === "/") {
-      event.preventDefault();
-      const start = sourceEl.selectionStart;
-      const end = sourceEl.selectionEnd;
-      const val = sourceEl.value;
-      const lastNewline = val.lastIndexOf("\n", start - 1);
-      const lineStart = lastNewline + 1;
-      const nextNewline = val.indexOf("\n", end);
-      const lineEnd = nextNewline === -1 ? val.length : nextNewline;
-      const lineText = val.substring(lineStart, lineEnd);
-      let newLineText;
-      let offset;
-      if (lineText.trim().startsWith("%")) {
-        newLineText = lineText.replace(/^\s*% ?/, (match) => {
-          const indent = match.match(/^\s*/)[0];
-          return indent;
+        const saved = localStorage.getItem("zodd-source");
+        if (saved !== null) {
+            setSource(saved);
+            return;
+        }
+        setSource(EXAMPLES[0].source);
+    })();
+
+    viewTextEl.addEventListener("click", () => setView("text"));
+    viewTableEl.addEventListener("click", () => setView("table"));
+
+    // Delegated listener: clicking a result row explains its derivation.
+    outputTableEl.addEventListener("click", (event) => {
+        if (event.target.closest(".copy-table-btn")) return;
+        const row = event.target.closest("tr[data-atom]");
+        if (!row) return;
+        explainAtom(row.dataset.atom);
+    });
+
+    // Delegated listener to copy a table's data in TSV format (ignoring the index column)
+    outputTableEl.addEventListener("click", (event) => {
+        const btn = event.target.closest(".copy-table-btn");
+        if (!btn) return;
+
+        const group = btn.closest(".output-table-group");
+        if (!group) return;
+
+        const table = group.querySelector(".output-table-el");
+        if (!table) return;
+
+        const rows = table.querySelectorAll("tbody tr");
+        const headers = table.querySelectorAll("thead th");
+
+        let tsvLines = [];
+
+        // Headers (skipping index column)
+        let headerCols = [];
+        for (let i = 0; i < headers.length; i++) {
+            if (headers[i].classList.contains("index-col")) continue;
+            headerCols.push(headers[i].textContent);
+        }
+        tsvLines.push(headerCols.join("\t"));
+
+        // Rows (skipping index column)
+        for (let r = 0; r < rows.length; r++) {
+            const cells = rows[r].querySelectorAll("td");
+            let rowCols = [];
+            for (let c = 0; c < cells.length; c++) {
+                if (cells[c].classList.contains("index-col")) continue;
+                rowCols.push(cells[c].textContent);
+            }
+            tsvLines.push(rowCols.join("\t"));
+        }
+
+        const tsvText = tsvLines.join("\n");
+        copyToClipboard(tsvText).then(() => {
+            const originalText = btn.textContent;
+            btn.textContent = "Copied!";
+            btn.style.borderColor = "var(--ok)";
+            btn.style.color = "var(--ok)";
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.borderColor = "";
+                btn.style.color = "";
+            }, 1500);
+        }).catch((err) => {
+            console.error("Clipboard copy failed: ", err);
         });
-        offset = newLineText.length - lineText.length;
-      } else {
-        const indentMatch = lineText.match(/^\s*/);
-        const indent = indentMatch ? indentMatch[0] : "";
-        const content = lineText.substring(indent.length);
-        newLineText = indent + "% " + content;
-        offset = 2;
-      }
-      sourceEl.value = val.substring(0, lineStart) + newLineText + val.substring(lineEnd);
-      sourceEl.selectionStart = start + offset;
-      sourceEl.selectionEnd = end + offset;
-      syncHighlight(null);
-      localStorage.setItem("zodd-source", sourceEl.value);
-    } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      execute();
-    }
-  });
-
-  runEl.addEventListener("click", execute);
-  planEl.addEventListener("click", showPlan);
-  shareEl.addEventListener("click", share);
-
-  downloadEl.addEventListener("click", () => {
-    const blob = new Blob([sourceEl.value], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "program.dl";
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus("downloaded", "ok");
-  });
-
-  clearEl.addEventListener("click", () => {
-    setSource("");
-    setStatus("CLEARED", "cleared");
-  });
-
-  clearOutputEl.addEventListener("click", () => {
-    outputEl.textContent = "";
-    outputEl.classList.remove("error");
-    outputTableEl.innerHTML = "";
-    if (viewToggleEl) viewToggleEl.classList.add("hidden");
-    setStatus("CLEARED", "cleared");
-    telemetryInfoEl.textContent = "";
-  });
-
-  // Loading a Datalog script from a file.
-  loadEl.addEventListener("click", () => fileEl.click());
-  fileEl.addEventListener("change", async () => {
-    const file = fileEl.files[0];
-    if (!file) return;
-    setSource(await file.text());
-    // Reset so selecting the same file again still fires a change event.
-    fileEl.value = "";
-    execute();
-  });
-
-  applyTheme(localStorage.getItem("zodd-theme") ?? "dark");
-
-  themeEl.addEventListener("click", () => {
-    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-    localStorage.setItem("zodd-theme", next);
-    applyTheme(next);
-  });
-
-  // About dialog.
-  aboutEl.addEventListener("click", () => aboutDialogEl.showModal());
-  aboutCloseEl.addEventListener("click", () => aboutDialogEl.close());
-  aboutDialogEl.addEventListener("click", (event) => {
-    // A click on the backdrop targets the dialog element itself.
-    if (event.target === aboutDialogEl) aboutDialogEl.close();
-  });
-
-  // Resizable split view.
-  dividerEl.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    dividerEl.classList.add("dragging");
-    dividerEl.setPointerCapture(event.pointerId);
-    const onMove = (move) => {
-      const bounds = document.getElementById("split").getBoundingClientRect();
-      const fraction = Math.min(0.85, Math.max(0.15, (move.clientX - bounds.left) / bounds.width));
-      editorPane.style.flexBasis = `${(fraction * 100).toFixed(1)}%`;
-    };
-    const onUp = () => {
-      dividerEl.classList.remove("dragging");
-      dividerEl.releasePointerCapture(event.pointerId);
-      dividerEl.removeEventListener("pointermove", onMove);
-      dividerEl.removeEventListener("pointerup", onUp);
-      dividerEl.removeEventListener("pointercancel", onUp);
-    };
-    dividerEl.addEventListener("pointermove", onMove);
-    dividerEl.addEventListener("pointerup", onUp);
-    dividerEl.addEventListener("pointercancel", onUp);
-  });
-
-  // Initial program: a permalink if present, the autosaved progress if available, or the first example otherwise.
-  (function initSource() {
-    const hash = window.location.hash;
-    if (hash.startsWith("#program=")) {
-      try {
-        setSource(decodeProgram(hash.slice("#program=".length)));
-        return;
-      } catch {
-        // Bad permalink; fall back to the first example.
-      }
-    }
-    const saved = localStorage.getItem("zodd-source");
-    if (saved !== null) {
-      setSource(saved);
-      return;
-    }
-    setSource(EXAMPLES[0].source);
-  })();
-
-  viewTextEl.addEventListener("click", () => setView("text"));
-  viewTableEl.addEventListener("click", () => setView("table"));
-
-  // Delegated listener: clicking a result row explains its derivation.
-  outputTableEl.addEventListener("click", (event) => {
-    if (event.target.closest(".copy-table-btn")) return;
-    const row = event.target.closest("tr[data-atom]");
-    if (!row) return;
-    explainAtom(row.dataset.atom);
-  });
-
-  // Delegated listener to copy a table's data in TSV format (ignoring the index column)
-  outputTableEl.addEventListener("click", (event) => {
-    const btn = event.target.closest(".copy-table-btn");
-    if (!btn) return;
-
-    const group = btn.closest(".output-table-group");
-    if (!group) return;
-
-    const table = group.querySelector(".output-table-el");
-    if (!table) return;
-
-    const rows = table.querySelectorAll("tbody tr");
-    const headers = table.querySelectorAll("thead th");
-
-    let tsvLines = [];
-
-    // Headers (skipping index column)
-    let headerCols = [];
-    for (let i = 0; i < headers.length; i++) {
-      if (headers[i].classList.contains("index-col")) continue;
-      headerCols.push(headers[i].textContent);
-    }
-    tsvLines.push(headerCols.join("\t"));
-
-    // Rows (skipping index column)
-    for (let r = 0; r < rows.length; r++) {
-      const cells = rows[r].querySelectorAll("td");
-      let rowCols = [];
-      for (let c = 0; c < cells.length; c++) {
-        if (cells[c].classList.contains("index-col")) continue;
-        rowCols.push(cells[c].textContent);
-      }
-      tsvLines.push(rowCols.join("\t"));
-    }
-
-    const tsvText = tsvLines.join("\n");
-    copyToClipboard(tsvText).then(() => {
-      const originalText = btn.textContent;
-      btn.textContent = "Copied!";
-      btn.style.borderColor = "var(--ok)";
-      btn.style.color = "var(--ok)";
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.style.borderColor = "";
-        btn.style.color = "";
-      }, 1500);
-    }).catch((err) => {
-      console.error("Clipboard copy failed: ", err);
     });
-  });
 
-  // Load the Wasm module, then run the initial program.
-  loadWasm()
-    .then((exports) => {
-      wasm = exports;
+    // Load the Wasm module, then run the initial program.
+    loadWasm()
+        .then((exports) => {
+            wasm = exports;
 
-      // Resolve and set version, build, and license metadata from Wasm
-      try {
-        const versionStr = decoder.decode(
-          new Uint8Array(wasm.memory.buffer, wasm.versionPtr(), wasm.versionLen()),
-        );
-        const commitStr = decoder.decode(
-          new Uint8Array(wasm.memory.buffer, wasm.commitPtr(), wasm.commitLen()),
-        );
-        const zigStr = decoder.decode(
-          new Uint8Array(wasm.memory.buffer, wasm.zigVersionPtr(), wasm.zigVersionLen()),
-        );
-        const licenseStr = decoder.decode(
-          new Uint8Array(wasm.memory.buffer, wasm.licensePtr(), wasm.licenseLen()),
-        );
+            // Resolve and set version, build, and license metadata from Wasm
+            try {
+                const versionStr = decoder.decode(
+                    new Uint8Array(wasm.memory.buffer, wasm.versionPtr(), wasm.versionLen()),
+                );
+                const commitStr = decoder.decode(
+                    new Uint8Array(wasm.memory.buffer, wasm.commitPtr(), wasm.commitLen()),
+                );
+                const zigStr = decoder.decode(
+                    new Uint8Array(wasm.memory.buffer, wasm.zigVersionPtr(), wasm.zigVersionLen()),
+                );
+                const licenseStr = decoder.decode(
+                    new Uint8Array(wasm.memory.buffer, wasm.licensePtr(), wasm.licenseLen()),
+                );
 
-        document.getElementById("about-version").textContent = `${versionStr} (Zig ${zigStr})`;
-        document.getElementById("about-build").textContent = `Wasm32 (${commitStr})`;
-        document.getElementById("about-license").textContent = licenseStr;
-      } catch (e) {
-        // Fallback if functions are missing
-      }
+                document.getElementById("about-version").textContent = `${versionStr} (Zig ${zigStr})`;
+                document.getElementById("about-build").textContent = `Wasm32 (${commitStr})`;
+                document.getElementById("about-license").textContent = licenseStr;
+            } catch (e) {
+                // Fallback if functions are missing
+            }
 
-      setStatus("ready", "ok");
-      execute();
-    })
-    .catch((err) => {
-      outputEl.textContent = `Failed to load zodd.wasm: ${err}\n\nBuild it with: make web`;
-      outputEl.classList.add("error");
-      setStatus("load failed", "error");
-    });
+            setStatus("ready", "ok");
+            execute();
+        })
+        .catch((err) => {
+            outputEl.textContent = `Failed to load zodd.wasm: ${err}\n\nBuild it with: make web`;
+            outputEl.classList.add("error");
+            setStatus("load failed", "error");
+        });
 }
 
 // --- Node exports for testing -------------------------------------------------
 if (typeof exports !== "undefined") {
-  exports.parseTuple = parseTuple;
-  exports.cleanValue = cleanValue;
-  exports.parseOutputToTables = parseOutputToTables;
-  exports.highlight = highlight;
-  exports.encodeProgram = encodeProgram;
-  exports.decodeProgram = decodeProgram;
+    exports.parseTuple = parseTuple;
+    exports.cleanValue = cleanValue;
+    exports.parseOutputToTables = parseOutputToTables;
+    exports.highlight = highlight;
+    exports.encodeProgram = encodeProgram;
+    exports.decodeProgram = decodeProgram;
 }
