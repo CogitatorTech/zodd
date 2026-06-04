@@ -82,7 +82,7 @@ For example:
 - Implements semi-naive evaluation for efficient recursive query processing
 - Uses immutable, sorted, and deduplicated relations as core data structures
 - Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
-- Includes a Datalog frontend with a parser, a builder API, stratified negation, and aggregates
+- Includes a Datalog frontend with a parser, a builder API, stratified negation, aggregates, and comparison operators
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 

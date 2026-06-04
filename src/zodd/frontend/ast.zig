@@ -51,6 +51,39 @@ pub const Literal = struct {
     negated: bool = false,
 };
 
+/// Comparison operators usable in rule bodies.
+pub const CmpOp = enum {
+    lt,
+    le,
+    gt,
+    ge,
+    eq,
+    ne,
+
+    /// Returns the source spelling of the operator.
+    pub fn symbol(self: CmpOp) []const u8 {
+        return switch (self) {
+            .lt => "<",
+            .le => "<=",
+            .gt => ">",
+            .ge => ">=",
+            .eq => "=",
+            .ne => "!=",
+        };
+    }
+};
+
+/// A body comparison, like `X < Y`. Comparisons are filters: they bind no
+/// variables, so both sides must be bound by positive body literals.
+/// Equality and inequality compare any values; ordered operators compare
+/// integers, and a string operand fails the comparison.
+pub const Compare = struct {
+    op: CmpOp,
+    lhs: Term,
+    rhs: Term,
+    span: Span = .{},
+};
+
 /// An aggregate rule head, like `total(D, sum(S))`. The head's arity is
 /// `group_terms.len + 1`; `agg_slot` is the argument position the aggregate
 /// occupies and `group_terms` are the remaining arguments in order.
@@ -82,6 +115,8 @@ pub const Head = union(enum) {
 pub const Rule = struct {
     head: Head,
     body: []Literal,
+    /// Body comparisons, applied as filters after the positive literals.
+    compares: []Compare = &.{},
     /// Number of distinct rule-scoped variables, including lowered wildcards.
     var_count: u16,
     /// Display names indexed by `VarId`. Variables lowered from wildcards

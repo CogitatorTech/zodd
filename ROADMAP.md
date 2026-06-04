@@ -30,6 +30,7 @@ This document outlines the features implemented in Zodd and the future goals for
 - [ ] CLI
 - [ ] Streaming input
 - [x] Rule DSL (textual Datalog frontend with a parser, a builder API, stratified negation, and aggregates)
+- [x] Comparison operators (`<`, `<=`, `>`, `>=`, `=`, and `!=` as body filters)
 - [x] Query planner
 - [x] Explain (rule plan rendering and tuple provenance proof trees)
 - [ ] Magic sets

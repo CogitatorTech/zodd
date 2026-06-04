@@ -6,7 +6,8 @@
 //! identifiers, variables are uppercase-initial (or underscore-led)
 //! identifiers, `_` alone is the anonymous wildcard, integers are
 //! non-negative `u64` literals, strings are double-quoted with `\"`, `\\`,
-//! `\n`, and `\t` escapes, and `%` starts a line comment.
+//! `\n`, and `\t` escapes, comparison operators are `<`, `<=`, `>`, `>=`,
+//! `=`, and `!=`, and `%` starts a line comment.
 
 const std = @import("std");
 const Span = @import("ast.zig").Span;
@@ -29,6 +30,15 @@ pub const TokenKind = enum {
     turnstile,
     /// `?-`
     query_prefix,
+    less_than,
+    /// `<=`
+    less_equal,
+    greater_than,
+    /// `>=`
+    greater_equal,
+    equal,
+    /// `!=`
+    not_equal,
     eof,
 };
 
@@ -87,6 +97,16 @@ pub const Lexer = struct {
                 return error.InvalidCharacter;
             },
             '-' => return error.NegativeInteger,
+            '<' => return self.maybeEqual(.less_than, .less_equal),
+            '>' => return self.maybeEqual(.greater_than, .greater_equal),
+            '=' => return self.single(.equal),
+            '!' => {
+                if (self.peekAt(1) == '=') {
+                    self.pos += 2;
+                    return Token{ .kind = .not_equal, .span = .{ .start = start, .end = self.pos } };
+                }
+                return error.InvalidCharacter;
+            },
             '"' => return self.lexString(start),
             '0'...'9' => {
                 while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
@@ -115,6 +135,18 @@ pub const Lexer = struct {
         const start = self.pos;
         self.pos += 1;
         return Token{ .kind = kind, .span = .{ .start = start, .end = self.pos } };
+    }
+
+    /// Lexes a one-character operator, or its two-character form when the
+    /// next character is `=`.
+    fn maybeEqual(self: *Lexer, bare: TokenKind, with_equal: TokenKind) Token {
+        const start = self.pos;
+        if (self.peekAt(1) == '=') {
+            self.pos += 2;
+            return Token{ .kind = with_equal, .span = .{ .start = start, .end = self.pos } };
+        }
+        self.pos += 1;
+        return Token{ .kind = bare, .span = .{ .start = start, .end = self.pos } };
     }
 
     fn lexString(self: *Lexer, start: u32) LexError!Token {
@@ -230,6 +262,20 @@ test "Lexer: literals, wildcard, and query prefix" {
     try std.testing.expectEqual(TokenKind.ident_upper, (try lexer.next()).kind);
 }
 
+test "Lexer: comparison operators" {
+    var lexer = Lexer.init("X < Y <= Z > 1 >= 2 = 3 != 4");
+
+    const expected = [_]TokenKind{
+        .ident_upper, .less_than,     .ident_upper, .less_equal, .ident_upper, .greater_than,
+        .integer,     .greater_equal, .integer,     .equal,      .integer,     .not_equal,
+        .integer,     .eof,
+    };
+    for (expected) |kind| {
+        const token = try lexer.next();
+        try std.testing.expectEqual(kind, token.kind);
+    }
+}
+
 test "Lexer: error cases" {
     var negative = Lexer.init("p(-1).");
     _ = try negative.next();
@@ -244,6 +290,11 @@ test "Lexer: error cases" {
     var bad = Lexer.init("p @ q");
     _ = try bad.next();
     try std.testing.expectError(error.InvalidCharacter, bad.next());
+
+    // `!` is only valid as part of `!=`.
+    var bang = Lexer.init("p ! q");
+    _ = try bang.next();
+    try std.testing.expectError(error.InvalidCharacter, bang.next());
 }
 
 test "unescapeString: rejects bad escapes" {

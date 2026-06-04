@@ -389,6 +389,43 @@ test "Database: strings, negation, and aggregates end to end" {
     try std.testing.expect(deg_a.next() == null);
 }
 
+test "Database: comparisons end to end" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+    db.track_provenance = true;
+
+    try db.run(
+        \\person(1, 17). person(2, 30). person(3, 18).
+        \\adult(X) :- person(X, Age), Age >= 18.
+    );
+    try db.solve();
+
+    var it = try db.query("adult", &.{null});
+    defer it.deinit();
+    try std.testing.expectEqual(@as(u64, 2), it.next().?.get(0).int);
+    try std.testing.expectEqual(@as(u64, 3), it.next().?.get(0).int);
+    try std.testing.expect(it.next() == null);
+
+    // The proof tree shows the grounded comparison.
+    var buffer: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try db.explain(&writer, "adult", &.{.{ .int = 2 }}, null);
+    try std.testing.expectEqualStrings(
+        \\adult(2)
+        \\  via rule 0: adult(X) :- person(X, Age), Age >= 18.
+        \\  person(2, 30) (fact)
+        \\  30 >= 18 (holds)
+        \\
+    , writer.buffered());
+
+    // Unsafe comparison variables are rejected at solve time.
+    try db.run("bad(X) :- person(X, _), X < Unbound.");
+    try std.testing.expectError(error.UnsafeComparisonVariable, db.solve());
+    try std.testing.expect(db.lastDiagnostic() != null);
+}
+
 test "Database: addFact and builder interoperate with run" {
     const allocator = std.testing.allocator;
 

@@ -70,6 +70,41 @@ test "frontend: transitive closure matches a hand-written semi-naive loop" {
     }
 }
 
+test "frontend: comparison filters across joins, recursion, and aggregates" {
+    const allocator = testing.allocator;
+
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+
+    try db.run(
+        \\% Weighted edges; hop(X, Y) keeps only the light ones.
+        \\edge(1, 2, 10). edge(2, 3, 50). edge(3, 4, 20). edge(1, 4, 99).
+        \\hop(X, Y) :- edge(X, Y, W), W < 60.
+        \\reach(X, Y) :- hop(X, Y).
+        \\reach(X, Z) :- reach(X, Y), hop(Y, Z), X != Z.
+        \\out_deg(N, count(M)) :- hop(N, M).
+        \\busy(N) :- out_deg(N, D), D >= 1.
+    );
+    try db.solve();
+
+    // The 99-weight edge is filtered, so 4 is reached only through 2 and 3.
+    var reach = try db.query("reach", &.{ zodd.Value{ .int = 1 }, null });
+    defer reach.deinit();
+    var targets: [4]u64 = undefined;
+    var n: usize = 0;
+    while (reach.next()) |row| : (n += 1) {
+        targets[n] = row.get(1).int;
+    }
+    try testing.expectEqualSlices(u64, &.{ 2, 3, 4 }, targets[0..n]);
+
+    // Comparisons over aggregate results work across strata.
+    var busy = try db.query("busy", &.{null});
+    defer busy.deinit();
+    var count: usize = 0;
+    while (busy.next()) |_| count += 1;
+    try testing.expectEqual(@as(usize, 3), count);
+}
+
 test "frontend: stratified negation over a role hierarchy" {
     const allocator = testing.allocator;
 

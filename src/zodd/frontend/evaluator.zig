@@ -19,6 +19,7 @@ const Iteration = @import("../iteration.zig").Iteration;
 const IterateError = @import("../iteration.zig").IterateError;
 const ast = @import("ast.zig");
 const dyntuple = @import("dyntuple.zig");
+const interner_mod = @import("interner.zig");
 const plan_mod = @import("plan.zig");
 const join_runtime = @import("join_runtime.zig");
 const DynTuple = dyntuple.DynTuple;
@@ -349,6 +350,13 @@ pub const Evaluator = struct {
                     );
                     current = out.items;
                 },
+                .cmp => |cmp| {
+                    var out: std.ArrayListUnmanaged(DynTuple) = .empty;
+                    for (current) |*tuple| {
+                        if (satisfies(&cmp, tuple)) try out.append(arena, tuple.*);
+                    }
+                    current = out.items;
+                },
             }
             if (current.len == 0) return;
         }
@@ -398,6 +406,35 @@ pub const Evaluator = struct {
             const head_var = ctx.vars.get(rule.head.pred()).?;
             try head_var.insertSlice(head_tuples.items);
         }
+    }
+
+    /// Evaluates a comparison filter on one intermediate tuple. Equality and
+    /// inequality compare raw atoms (interning makes equal values identical);
+    /// ordered operators compare integers, and a string operand fails the
+    /// comparison.
+    fn satisfies(cmp: *const plan_mod.CmpStep, tuple: *const DynTuple) bool {
+        const lhs = cmpValue(cmp.lhs, tuple);
+        const rhs = cmpValue(cmp.rhs, tuple);
+        switch (cmp.op) {
+            .eq => return lhs == rhs,
+            .ne => return lhs != rhs,
+            else => {},
+        }
+        if (interner_mod.isStr(lhs) or interner_mod.isStr(rhs)) return false;
+        return switch (cmp.op) {
+            .lt => lhs < rhs,
+            .le => lhs <= rhs,
+            .gt => lhs > rhs,
+            .ge => lhs >= rhs,
+            .eq, .ne => unreachable,
+        };
+    }
+
+    fn cmpValue(arg: plan_mod.CmpArg, tuple: *const DynTuple) dyntuple.Atom {
+        return switch (arg) {
+            .col => |col| dyntuple.get(tuple, col),
+            .constant => |constant| constant,
+        };
     }
 
     fn projectHead(tuple: *const DynTuple, head_cols: []const plan_mod.HeadCol) DynTuple {
@@ -605,6 +642,106 @@ test "Evaluator: aggregate over a derived relation" {
     try std.testing.expectEqual(@as(u64, 2), dyntuple.get(&result.elements[0], 1));
     try std.testing.expectEqual(@as(u64, 2), dyntuple.get(&result.elements[1], 0));
     try std.testing.expectEqual(@as(u64, 1), dyntuple.get(&result.elements[1], 1));
+}
+
+test "Evaluator: comparison filters" {
+    const allocator = std.testing.allocator;
+
+    var setup = TestSetup.init(allocator);
+    defer setup.deinit();
+    var b = setup.builder();
+
+    const person = try b.predicate("person", 2);
+    const adult = try b.predicate("adult", 1);
+    const pair = try b.predicate("pair", 2);
+
+    try b.fact(person, &.{ 1, 17 });
+    try b.fact(person, &.{ 2, 30 });
+    try b.fact(person, &.{ 3, 18 });
+
+    {
+        // adult(X) :- person(X, Age), Age >= 18.
+        var r = b.rule(adult);
+        const x = try r.v("X");
+        const age = try r.v("Age");
+        try r.head(&.{x});
+        try r.pos(person, &.{ x, age });
+        try r.cmp(age, .ge, try b.int(18));
+        try r.finish();
+    }
+    {
+        // pair(X, Y) :- person(X, A), person(Y, B), X != Y, A < B.
+        var r = b.rule(pair);
+        const x = try r.v("X");
+        const a = try r.v("A");
+        const y = try r.v("Y");
+        const bb = try r.v("B");
+        try r.head(&.{ x, y });
+        try r.pos(person, &.{ x, a });
+        try r.pos(person, &.{ y, bb });
+        try r.cmp(x, .ne, y);
+        try r.cmp(a, .lt, bb);
+        try r.finish();
+    }
+
+    var evaluator = Evaluator.init(allocator, &setup.program);
+    defer evaluator.deinit();
+    try setup.solve(&evaluator, null);
+
+    const adults = evaluator.relationOf(adult).?;
+    try std.testing.expectEqual(@as(usize, 2), adults.len());
+    try std.testing.expectEqual(@as(u64, 2), dyntuple.get(&adults.elements[0], 0));
+    try std.testing.expectEqual(@as(u64, 3), dyntuple.get(&adults.elements[1], 0));
+
+    // Ages 17 < 30, 17 < 18, 18 < 30: pairs (1, 2), (1, 3), (3, 2).
+    const pairs = evaluator.relationOf(pair).?;
+    try std.testing.expectEqual(@as(usize, 3), pairs.len());
+}
+
+test "Evaluator: ordered comparisons fail on string operands" {
+    const allocator = std.testing.allocator;
+
+    var setup = TestSetup.init(allocator);
+    defer setup.deinit();
+    var b = setup.builder();
+
+    const item = try b.predicate("item", 1);
+    const small = try b.predicate("small", 1);
+    const other = try b.predicate("other", 1);
+
+    try b.fact(item, &.{try b.interner.encode(.{ .str = "a" })});
+    try b.fact(item, &.{try b.interner.encode(.{ .int = 1 })});
+
+    {
+        // small(X) :- item(X), X < 5.  (the string never satisfies <)
+        var r = b.rule(small);
+        const x = try r.v("X");
+        try r.head(&.{x});
+        try r.pos(item, &.{x});
+        try r.cmp(x, .lt, try b.int(5));
+        try r.finish();
+    }
+    {
+        // other(X) :- item(X), X != "a".  (inequality works on any values)
+        var r = b.rule(other);
+        const x = try r.v("X");
+        try r.head(&.{x});
+        try r.pos(item, &.{x});
+        try r.cmp(x, .ne, try b.str("a"));
+        try r.finish();
+    }
+
+    var evaluator = Evaluator.init(allocator, &setup.program);
+    defer evaluator.deinit();
+    try setup.solve(&evaluator, null);
+
+    const smalls = evaluator.relationOf(small).?;
+    try std.testing.expectEqual(@as(usize, 1), smalls.len());
+    try std.testing.expectEqual(@as(u64, 1), dyntuple.get(&smalls.elements[0], 0));
+
+    const others = evaluator.relationOf(other).?;
+    try std.testing.expectEqual(@as(usize, 1), others.len());
+    try std.testing.expectEqual(@as(u64, 1), dyntuple.get(&others.elements[0], 0));
 }
 
 test "Evaluator: facts seed derived predicates" {

@@ -99,7 +99,8 @@ fn writeHeadTemplate(
     }
 }
 
-/// Writes a rule in source form: `head :- body.`.
+/// Writes a rule in source form: `head :- body.`. Comparisons render after
+/// the body literals.
 pub fn writeRule(
     writer: *std.Io.Writer,
     program: *const ast.Program,
@@ -112,6 +113,12 @@ pub fn writeRule(
         if (i > 0) try writer.writeAll(", ");
         if (literal.negated) try writer.writeAll("not ");
         try writeAtomTemplate(writer, program, interner, rule, literal.atom);
+    }
+    for (rule.compares) |compare| {
+        try writer.writeAll(", ");
+        try writeTerm(writer, interner, rule, compare.lhs);
+        try writer.print(" {s} ", .{compare.op.symbol()});
+        try writeTerm(writer, interner, rule, compare.rhs);
     }
     try writer.writeAll(".");
 }
@@ -177,12 +184,32 @@ pub fn writePlan(
                 try writeChecks(writer, interner, &anti.load);
                 try writer.writeAll("\n");
             },
+            .cmp => |cmp| {
+                try writer.writeAll("  filter ");
+                try writeCmpArg(writer, interner, rule, plan.layout, cmp.lhs);
+                try writer.print(" {s} ", .{cmp.op.symbol()});
+                try writeCmpArg(writer, interner, rule, plan.layout, cmp.rhs);
+                try writer.writeAll("\n");
+            },
         }
     }
 
     try writer.writeAll("  head ");
     try writeHeadTemplate(writer, program, interner, rule);
     try writer.writeAll("\n");
+}
+
+fn writeCmpArg(
+    writer: *std.Io.Writer,
+    interner: *const Interner,
+    rule: *const ast.Rule,
+    layout: []const ast.VarId,
+    arg: plan_mod.CmpArg,
+) WriteError!void {
+    switch (arg) {
+        .col => |col| try writeVar(writer, rule, layout[col]),
+        .constant => |value| try writeValue(writer, interner, value),
+    }
 }
 
 /// Writes a ground atom: `pred(value, ...)`.
@@ -207,14 +234,18 @@ fn writeTupleAtom(
 fn groundAtom(atom: ast.Atom, binding: *const DynTuple) DynTuple {
     var tuple = dyntuple.zero_tuple;
     for (atom.terms, 0..) |term, col| {
-        const value = switch (term) {
-            .variable => |var_id| dyntuple.get(binding, var_id),
-            .constant => |constant| constant,
-            .wildcard => unreachable, // Lowered by analysis.
-        };
-        dyntuple.set(&tuple, col, value);
+        dyntuple.set(&tuple, col, groundTerm(term, binding));
     }
     return tuple;
+}
+
+/// Grounds one term by substituting the recorded variable binding.
+fn groundTerm(term: ast.Term, binding: *const DynTuple) dyntuple.Atom {
+    return switch (term) {
+        .variable => |var_id| dyntuple.get(binding, var_id),
+        .constant => |constant| constant,
+        .wildcard => unreachable, // Lowered by analysis.
+    };
 }
 
 fn writeIndent(writer: *std.Io.Writer, depth: usize) WriteError!void {
@@ -281,6 +312,13 @@ fn writeProofNode(
                     try writeProofNode(writer, program, interner, evaluator, literal.atom.pred, premise, depth + 1, max_depth);
                 }
             }
+            for (rule.compares) |compare| {
+                try writeIndent(writer, depth + 1);
+                try writeValue(writer, interner, groundTerm(compare.lhs, &d.binding));
+                try writer.print(" {s} ", .{compare.op.symbol()});
+                try writeValue(writer, interner, groundTerm(compare.rhs, &d.binding));
+                try writer.writeAll(" (holds)\n");
+            }
         },
         .aggregate => |rule_index| {
             const rule = &program.rules.items[rule_index];
@@ -312,6 +350,8 @@ test "writeRule: plain, negated, and aggregate heads" {
     const safe = try builder.predicate("safe", 1);
     const edge = try builder.predicate("edge", 2);
     const deg = try builder.predicate("deg", 2);
+    const person = try builder.predicate("person", 2);
+    const adult = try builder.predicate("adult", 1);
 
     {
         // safe(X) :- node(X), not blocked(X).
@@ -331,6 +371,16 @@ test "writeRule: plain, negated, and aggregate heads" {
         try r.pos(edge, &.{ n, m });
         try r.finish();
     }
+    {
+        // adult(X) :- person(X, Age), Age >= 18.
+        var r = builder.rule(adult);
+        const x = try r.v("X");
+        const age = try r.v("Age");
+        try r.head(&.{x});
+        try r.pos(person, &.{ x, age });
+        try r.cmp(age, .ge, try builder.int(18));
+        try r.finish();
+    }
 
     var buffer: [128]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
@@ -340,6 +390,10 @@ test "writeRule: plain, negated, and aggregate heads" {
     writer = std.Io.Writer.fixed(&buffer);
     try writeRule(&writer, &program, &interner, &program.rules.items[1]);
     try std.testing.expectEqualStrings("deg(N, count(M)) :- edge(N, M).", writer.buffered());
+
+    writer = std.Io.Writer.fixed(&buffer);
+    try writeRule(&writer, &program, &interner, &program.rules.items[2]);
+    try std.testing.expectEqualStrings("adult(X) :- person(X, Age), Age >= 18.", writer.buffered());
 }
 
 test "writePlan: scan, join, anti, and checks" {
@@ -355,7 +409,7 @@ test "writePlan: scan, join, anti, and checks" {
     const blocked = try builder.predicate("blocked", 1);
     const path = try builder.predicate("path", 2);
 
-    // path(X, Z) :- path(X, Y), edge(Y, Z), not blocked(Z).
+    // path(X, Z) :- path(X, Y), edge(Y, Z), not blocked(Z), X != Z.
     var r = builder.rule(path);
     const x = try r.v("X");
     const y = try r.v("Y");
@@ -364,6 +418,7 @@ test "writePlan: scan, join, anti, and checks" {
     try r.pos(path, &.{ x, y });
     try r.pos(edge, &.{ y, z });
     try r.neg(blocked, &.{z});
+    try r.cmp(x, .ne, z);
     try r.finish();
 
     _ = try analyze_mod.analyze(&program, null);
@@ -377,9 +432,10 @@ test "writePlan: scan, join, anti, and checks" {
     try writePlan(&writer, &program, &interner, &program.rules.items[0], &plan);
 
     try std.testing.expectEqualStrings(
-        \\rule 0 (stratum 1): path(X, Z) :- path(X, Y), edge(Y, Z), not blocked(Z).
+        \\rule 0 (stratum 1): path(X, Z) :- path(X, Y), edge(Y, Z), not blocked(Z), X != Z.
         \\  scan path -> (X, Y)
         \\  join edge on (Y) -> (Y, X, Z)
+        \\  filter X != Z
         \\  anti blocked on (Z)
         \\  head path(X, Z)
         \\

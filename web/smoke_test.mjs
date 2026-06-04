@@ -77,6 +77,16 @@ expect(features.status === 0, `features status is ${features.status}`);
 expect(features.out.includes('("a")'), "negation result missing");
 expect(features.out.includes('("a", 2)'), "aggregate result missing");
 
+// Comparison operators filter rule bodies.
+const compare = run(`
+  age(1, 17). age(2, 30). age(3, 18).
+  adult(X) :- age(X, A), A >= 18.
+  ?- adult(X).
+`);
+expect(compare.status === 0, `compare status is ${compare.status}`);
+expect(compare.out.includes("(2)"), "adult(2) missing from comparison output");
+expect(!compare.out.includes("(1)"), "minor leaked through the comparison filter");
+
 // Error path: must report text with a location, never trap.
 const bad = run("edge(1, X).");
 expect(bad.status !== 0, "non-ground fact accepted");

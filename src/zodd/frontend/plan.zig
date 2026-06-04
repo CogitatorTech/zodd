@@ -2,8 +2,8 @@
 //!
 //! The module compiles an analyzed rule into a join plan the evaluator
 //! executes: a left-deep chain of scans and prefix merge-joins, followed by
-//! anti-join filters for negated literals and a head projection (or
-//! aggregation).
+//! comparison filters, anti-join filters for negated literals, and a head
+//! projection (or aggregation).
 //!
 //! The intermediate result of a chain is a `DynTuple` relation whose columns
 //! hold the rule variables bound so far (the layout). All column
@@ -66,10 +66,27 @@ pub const AntiStep = struct {
     i_key_cols: []u8,
 };
 
+/// One side of a comparison filter: a column of the current layout or a
+/// constant.
+pub const CmpArg = union(enum) {
+    col: u8,
+    constant: dyntuple.Atom,
+};
+
+/// Filters the intermediate with a comparison. Equality and inequality
+/// compare raw atoms; ordered operators compare integers, and a string
+/// operand fails the comparison.
+pub const CmpStep = struct {
+    op: ast.CmpOp,
+    lhs: CmpArg,
+    rhs: CmpArg,
+};
+
 pub const Step = union(enum) {
     scan: AtomLoad,
     join: JoinStep,
     anti: AntiStep,
+    cmp: CmpStep,
 };
 
 /// One head column: a column of the final intermediate (or of the aggregate
@@ -97,7 +114,7 @@ pub const HeadKind = union(enum) {
 
 /// A compiled rule.
 pub const Plan = struct {
-    /// Scan and join steps in body order, then anti steps.
+    /// Scan and join steps in body order, then cmp steps, then anti steps.
     steps: []Step,
     head: HeadKind,
     /// Final intermediate width (number of layout columns).
@@ -130,6 +147,17 @@ pub fn compile(arena: Allocator, rule: *const ast.Rule) PlanError!Plan {
             layout.clearRetainingCapacity();
             try layout.appendSlice(arena, step.out_vars);
         }
+    }
+
+    // Comparison filters after all positives; safety guarantees their
+    // variables are bound by then. None of the remaining steps change the
+    // layout, so the columns stay valid.
+    for (rule.compares) |compare| {
+        try steps.append(arena, .{ .cmp = .{
+            .op = compare.op,
+            .lhs = cmpArg(compare.lhs, layout.items),
+            .rhs = cmpArg(compare.rhs, layout.items),
+        } });
     }
 
     // Negated literals after all positives; safety guarantees their
@@ -210,6 +238,14 @@ fn buildLoad(
         .const_checks = const_checks.items,
         .eq_checks = eq_checks.items,
         .out_vars = out_vars.items,
+    };
+}
+
+fn cmpArg(term: ast.Term, layout: []const ast.VarId) CmpArg {
+    return switch (term) {
+        .variable => |var_id| CmpArg{ .col = colOf(layout, var_id) },
+        .constant => |value| CmpArg{ .constant = value },
+        .wildcard => unreachable, // Rejected by the builder.
     };
 }
 
@@ -445,6 +481,47 @@ test "compile: constants and repeated variables become checks" {
     try std.testing.expectEqual(@as(u64, 5), load.const_checks[0].value);
     try std.testing.expectEqual(@as(usize, 1), load.eq_checks.len);
     try std.testing.expectEqual(@as(usize, 1), load.out_vars.len);
+}
+
+test "compile: comparisons become cmp steps before anti steps" {
+    const allocator = std.testing.allocator;
+    const Builder = @import("builder.zig").Builder;
+    const Interner = @import("interner.zig").Interner;
+
+    var program = ast.Program.init(allocator);
+    defer program.deinit();
+    var interner = Interner.init(allocator);
+    defer interner.deinit();
+    var builder = Builder{ .program = &program, .interner = &interner };
+
+    const person = try builder.predicate("person", 2);
+    const blocked = try builder.predicate("blocked", 1);
+    const adult = try builder.predicate("adult", 1);
+
+    // adult(X) :- person(X, Age), Age >= 18, not blocked(X).
+    var r = builder.rule(adult);
+    const x = try r.v("X");
+    const age = try r.v("Age");
+    try r.head(&.{x});
+    try r.pos(person, &.{ x, age });
+    try r.cmp(age, .ge, try builder.int(18));
+    try r.neg(blocked, &.{x});
+    try r.finish();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const plan = try compile(arena.allocator(), &program.rules.items[0]);
+
+    try std.testing.expectEqual(@as(usize, 3), plan.steps.len);
+    try std.testing.expect(plan.steps[0] == .scan);
+    try std.testing.expect(plan.steps[1] == .cmp);
+    try std.testing.expect(plan.steps[2] == .anti);
+
+    const cmp = plan.steps[1].cmp;
+    try std.testing.expectEqual(ast.CmpOp.ge, cmp.op);
+    // Age sits in layout column 1; the constant carries through.
+    try std.testing.expectEqual(age.variable, plan.layout[cmp.lhs.col]);
+    try std.testing.expectEqual(@as(u64, 18), cmp.rhs.constant);
 }
 
 test "compile: negation becomes a trailing anti step" {
