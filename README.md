@@ -22,6 +22,15 @@ A small embeddable Datalog engine in Zig
 
 **You can try Zodd in your web browser [here](https://CogitatorTech.github.io/zodd/).**
 
+You can download and use the latest pre-built Docker image for the web version of Zodd from the
+[GHCR](https://github.com/CogitatorTech/zodd/pkgs/container/zodd-web) and run it with the following command:
+
+```bash
+docker run -d -p 8085:80 --rm ghcr.io/cogitatortech/zodd-web:latest
+```
+
+Then open http://localhost:8085 in your browser.
+
 ### What is Datalog?
 
 Datalog is a declarative logic programming language for deductive databases.
