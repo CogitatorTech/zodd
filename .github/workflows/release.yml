@@ -41,11 +41,15 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Downcase registry owner
+        run: |
+          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/zodd-web
+          images: ghcr.io/${{ env.OWNER_LC }}/zodd-web
           # `latest` is reserved for actual tag pushes; manual workflow_dispatch
           # runs publish under `develop` instead so they cannot overwrite a
           # released image.
