@@ -30,12 +30,13 @@
 
     <div class="toolbar-group">
       <button id="load" title="Load a Datalog script from filesystem">Load</button>
-      <button id="download" title="Download editor content to as a Datalog script">Download</button>
+      <button id="download" title="Download editor content as a Datalog script">Download</button>
       <button id="share" title="Copy a permalink for sharing">Share</button>
     </div>
 
     <div class="toolbar-group">
       <button id="run" title="Execute program (Ctrl+Enter)">Execute</button>
+      <button id="plan" title="Show the compiled evaluation plan of each rule">Plan</button>
       <button id="clear" title="Clear editor content">Clear</button>
     </div>
 
@@ -62,7 +63,7 @@
     <section class="pane output-pane">
       <div class="output-header">
         <span id="telemetry-info"></span>
-        <div class="view-toggle">
+        <div id="view-toggle" class="view-toggle hidden">
           <button id="view-text" class="active" title="Show raw text output">Text</button>
           <button id="view-table" title="Show tabular results">Table</button>
         </div>
@@ -75,7 +76,8 @@
 
   <footer>
     <span>Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run.
-      Programs with <code>?-</code> queries answer them; otherwise all derived relations are printed.</span>
+      Programs with <code>?-</code> queries answer them; otherwise all derived relations are printed.
+      Click a row in the Table view to see how the tuple was derived.</span>
   </footer>
 
   <dialog id="about-dialog">

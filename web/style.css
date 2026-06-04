@@ -694,6 +694,14 @@ dialog button:hover { border-color: var(--accent); }
   background: rgba(255, 255, 255, 0.02);
 }
 
+.output-table-el tbody tr[data-atom] {
+  cursor: pointer;
+}
+
+.output-table-el tbody tr[data-atom]:hover td {
+  background: rgba(127, 127, 127, 0.12);
+}
+
 .output-table-no-results {
   font-family: var(--sans);
   font-size: 13px;

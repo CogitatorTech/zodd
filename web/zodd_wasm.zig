@@ -26,6 +26,9 @@ const iteration_limit = 100_000;
 /// Total result rows printed before truncating the output.
 const max_rows = 2000;
 
+/// Proof tree levels expanded by `explain` before truncating.
+const explain_depth_limit = 64;
+
 /// The rendered output of the last `run` call, owned by this module.
 var output: []u8 = &.{};
 
@@ -50,26 +53,57 @@ export fn outputLen() usize {
     return output.len;
 }
 
-/// Parses, solves, and queries the given Datalog source. Returns 0 on
-/// success and nonzero on error; either way the output text is available
-/// through `outputPtr` and `outputLen`.
-export fn run(source_ptr: [*]const u8, source_len: usize) u32 {
+/// Stores the result of an evaluation as the module's output text: 0 on
+/// success, 1 on error with the error name appended.
+fn capture(result: anyerror!void, buffer: *std.Io.Writer.Allocating) u32 {
+    const status: u32 = if (result) |_| 0 else |err| blk: {
+        buffer.writer.print("error: {s}\n", .{@errorName(err)}) catch {};
+        break :blk 1;
+    };
+    output = buffer.toOwnedSlice() catch &.{};
+    return status;
+}
+
+fn freeOutput() void {
     if (output.len != 0) {
         allocator.free(output);
         output = &.{};
     }
+}
 
-    const source = source_ptr[0..source_len];
+/// Parses, solves, and queries the given Datalog source. Returns 0 on
+/// success and nonzero on error; either way the output text is available
+/// through `outputPtr` and `outputLen`.
+export fn run(source_ptr: [*]const u8, source_len: usize) u32 {
+    freeOutput();
     var buffer = std.Io.Writer.Allocating.init(allocator);
     defer buffer.deinit();
+    return capture(evaluate(source_ptr[0..source_len], &buffer.writer), &buffer);
+}
 
-    const status: u32 = if (evaluate(source, &buffer.writer)) |_| 0 else |err| blk: {
-        buffer.writer.print("error: {s}\n", .{@errorName(err)}) catch {};
-        break :blk 1;
-    };
+/// Renders the compiled join plan of every rule in the given source.
+export fn explainPlan(source_ptr: [*]const u8, source_len: usize) u32 {
+    freeOutput();
+    var buffer = std.Io.Writer.Allocating.init(allocator);
+    defer buffer.deinit();
+    return capture(evaluatePlan(source_ptr[0..source_len], &buffer.writer), &buffer);
+}
 
-    output = buffer.toOwnedSlice() catch &.{};
-    return status;
+/// Renders the proof tree of one derived tuple. The atom text is a ground
+/// atom like `path(1, 3)`, parsed with the same parser as the program.
+export fn explain(
+    source_ptr: [*]const u8,
+    source_len: usize,
+    atom_ptr: [*]const u8,
+    atom_len: usize,
+) u32 {
+    freeOutput();
+    var buffer = std.Io.Writer.Allocating.init(allocator);
+    defer buffer.deinit();
+    return capture(
+        evaluateExplain(source_ptr[0..source_len], atom_ptr[0..atom_len], &buffer.writer),
+        &buffer,
+    );
 }
 
 fn evaluate(source: []const u8, writer: *std.Io.Writer) !void {
@@ -87,6 +121,66 @@ fn evaluate(source: []const u8, writer: *std.Io.Writer) !void {
     };
 
     try renderResults(writer, &db);
+}
+
+fn evaluatePlan(source: []const u8, writer: *std.Io.Writer) !void {
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+    db.max_iterations = iteration_limit;
+
+    db.run(source) catch |err| {
+        try renderDiagnostic(writer, &db, source);
+        return err;
+    };
+    if (db.program.rules.items.len == 0) {
+        try writer.writeAll("(no rules)\n");
+        return;
+    }
+    db.explainPlan(writer) catch |err| {
+        try renderDiagnostic(writer, &db, source);
+        return err;
+    };
+}
+
+fn evaluateExplain(source: []const u8, atom: []const u8, writer: *std.Io.Writer) !void {
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+    db.max_iterations = iteration_limit;
+    db.track_provenance = true;
+
+    db.run(source) catch |err| {
+        try renderDiagnostic(writer, &db, source);
+        return err;
+    };
+    db.solve() catch |err| {
+        try renderDiagnostic(writer, &db, source);
+        return err;
+    };
+
+    // Parse the atom as a stored query, reusing the parser and interner.
+    const query_text = try std.fmt.allocPrint(allocator, "?- {s}.", .{atom});
+    defer allocator.free(query_text);
+    db.run(query_text) catch |err| {
+        try writer.print("cannot parse atom: {s}\n", .{atom});
+        return err;
+    };
+
+    const stored = db.program.queries.items[db.program.queries.items.len - 1];
+    const info = db.program.preds.items[stored.pred];
+    const name = db.interner.resolve(info.name_atom).str;
+
+    var values: [max_arity]zodd.Value = undefined;
+    for (stored.pattern, 0..) |maybe_atom, i| {
+        const ground = maybe_atom orelse return error.NonGroundAtom;
+        values[i] = db.interner.resolve(ground);
+    }
+
+    db.explain(writer, name, values[0..info.arity], explain_depth_limit) catch |err| {
+        if (err == error.TupleNotFound) {
+            try writer.print("{s} is not in the result set\n", .{atom});
+        }
+        return err;
+    };
 }
 
 fn renderDiagnostic(writer: *std.Io.Writer, db: *const zodd.Database, source: []const u8) !void {

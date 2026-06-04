@@ -49,6 +49,40 @@ q(Name, Book, Dollars) :-
 `,
   },
   {
+    name: "Comparison filters",
+    source: `% Service latencies checked against SLA limits with comparison operators.
+% Comparisons (<, <=, >, >=, =, !=) filter rule bodies; every comparison
+% variable must also occur in a positive body literal.
+%
+% Base facts: observed latencies (milliseconds) per service and probe, and
+% an SLA limit per service.
+latency("auth", 1, 12).
+latency("auth", 2, 18).
+latency("search", 1, 220).
+latency("search", 2, 250).
+latency("billing", 1, 95).
+latency("billing", 2, 80).
+
+sla("auth", 50).
+sla("search", 200).
+sla("billing", 100).
+
+% Rule: a probe breaches when its latency exceeds the service's limit.
+breach(S, P) :- latency(S, P, L), sla(S, Limit), L > Limit.
+
+% Rules: a service is healthy when no probe breached its SLA.
+flagged(S) :- breach(S, _).
+healthy(S) :- sla(S, _), not flagged(S).
+
+% Rules: worst observed latency per service, then a pairwise ordering.
+% Comparisons also apply to aggregate results in a later stratum.
+worst(S, max(L)) :- latency(S, _, L).
+slower_than(A, B) :- worst(A, LA), worst(B, LB), A != B, LA > LB.
+
+% No query: all derived relations are printed.
+`,
+  },
+  {
     name: "Network reachability",
     source: `% Which network zones can talk through routing and firewall rules?
 %
@@ -380,23 +414,33 @@ async function loadWasm() {
   return instance.exports;
 }
 
-function runProgram(source) {
-  const sourceBytes = encoder.encode(source);
-  // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
-  let ptr = 0;
-  if (sourceBytes.length > 0) {
-    ptr = wasm.alloc(sourceBytes.length);
+// Calls a Wasm export taking (ptr, len) pairs, one per string argument.
+function wasmCall(fnName, strings) {
+  const buffers = strings.map((s) => encoder.encode(s));
+  const ptrs = buffers.map((bytes) => {
+    // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
+    if (bytes.length === 0) return 0;
+    const ptr = wasm.alloc(bytes.length);
     if (ptr === 0) throw new Error("Wasm allocation failed");
     // Views must be created after each call into Wasm: memory growth
     // detaches previously created typed arrays.
-    new Uint8Array(wasm.memory.buffer, ptr, sourceBytes.length).set(sourceBytes);
-  }
-  const status = wasm.run(ptr, sourceBytes.length);
-  if (ptr !== 0) wasm.dealloc(ptr, sourceBytes.length);
+    new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
+    return ptr;
+  });
+  const args = [];
+  buffers.forEach((bytes, i) => args.push(ptrs[i], bytes.length));
+  const status = wasm[fnName](...args);
+  buffers.forEach((bytes, i) => {
+    if (ptrs[i] !== 0) wasm.dealloc(ptrs[i], bytes.length);
+  });
   const out = decoder.decode(
     new Uint8Array(wasm.memory.buffer, wasm.outputPtr(), wasm.outputLen()),
   );
   return { status, out };
+}
+
+function runProgram(source) {
+  return wasmCall("run", [source]);
 }
 
 // --- Syntax highlighting ------------------------------------------------------
@@ -409,7 +453,7 @@ const TOKEN_RE = new RegExp(
     "\\b(\\d+)\\b", // 4: number
     "\\b([A-Z_][A-Za-z0-9_]*)\\b", // 5: variable
     "\\b([a-z][A-Za-z0-9_]*)\\b", // 6: predicate
-    "(\\?-|:-|[(),.])", // 7: punctuation
+    "(\\?-|:-|<=|>=|!=|[<>=(),.])", // 7: punctuation
   ].join("|"),
   "g",
 );
@@ -421,6 +465,10 @@ const TOKEN_CLASSES = [
 
 function escapeHtml(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replace(/"/g, "&quot;");
 }
 
 function highlight(source, errorLine = null) {
@@ -497,7 +545,7 @@ function copyToClipboard(text) {
 
 let activeErrorLine = null;
 
-let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, statusEl, examplesEl, runEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
+let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, viewToggleEl, statusEl, examplesEl, runEl, planEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
 
 function syncHighlight(errorLine = null) {
   activeErrorLine = errorLine;
@@ -505,6 +553,7 @@ function syncHighlight(errorLine = null) {
   highlightCodeEl.innerHTML = highlight(sourceEl.value, activeErrorLine) + "\n";
   syncScroll();
   updateLineNumbers();
+  updateDropdownSelection();
 }
 
 function syncScroll() {
@@ -525,6 +574,23 @@ function updateLineNumbers() {
     numbers += i + "\n";
   }
   el.textContent = numbers;
+}
+
+function updateDropdownSelection() {
+  if (typeof document === "undefined" || !examplesEl) return;
+  const currentSource = sourceEl.value;
+  let matchedIndex = -1;
+  for (let i = 0; i < EXAMPLES.length; i++) {
+    if (EXAMPLES[i].source === currentSource) {
+      matchedIndex = i;
+      break;
+    }
+  }
+  if (matchedIndex !== -1) {
+    examplesEl.value = String(matchedIndex);
+  } else {
+    examplesEl.value = "custom";
+  }
 }
 
 function setSource(text) {
@@ -559,11 +625,14 @@ function execute() {
   outputEl.classList.toggle("error", result.status !== 0);
 
   if (result.status === 0) {
+    if (viewToggleEl) viewToggleEl.classList.remove("hidden");
     setStatus("SUCCESS", "ok");
     telemetryInfoEl.textContent = `Duration: ${elapsed} ms | Size: ${result.out.length} chars`;
     outputTableEl.innerHTML = parseOutputToTables(result.out);
     syncHighlight(null);
   } else {
+    if (viewToggleEl) viewToggleEl.classList.add("hidden");
+    setView("text");
     setStatus("error", "error");
     telemetryInfoEl.textContent = `Failed in ${elapsed} ms`;
     outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error); white-space: pre-wrap; font-family: var(--mono);">${escapeHtml(result.out)}</div>`;
@@ -576,6 +645,44 @@ function execute() {
     } else {
       syncHighlight(null);
     }
+  }
+}
+
+// Shows engine-generated explanation text (a plan or a proof tree) in the
+// text view. Clears stale table results and hides the view toggle.
+function showExplanation(result, okStatus) {
+  outputEl.textContent = result.out || "(no output)";
+  outputEl.classList.toggle("error", result.status !== 0);
+  outputTableEl.innerHTML = ""; // Clear stale table data
+  if (viewToggleEl) viewToggleEl.classList.add("hidden"); // Hide the view toggle
+  telemetryInfoEl.textContent = ""; // Clear stale telemetry info
+  setView("text");
+  if (result.status === 0) {
+    setStatus(okStatus, "ok");
+  } else {
+    setStatus("error", "error");
+  }
+}
+
+function showPlan() {
+  if (!wasm) return;
+  try {
+    showExplanation(wasmCall("explainPlan", [sourceEl.value]), "plan");
+  } catch (err) {
+    outputEl.textContent = `internal error: ${err}`;
+    outputEl.classList.add("error");
+    setStatus("trap", "error");
+  }
+}
+
+function explainAtom(atom) {
+  if (!wasm) return;
+  try {
+    showExplanation(wasmCall("explain", [sourceEl.value, atom]), "explained");
+  } catch (err) {
+    outputEl.textContent = `internal error: ${err}`;
+    outputEl.classList.add("error");
+    setStatus("trap", "error");
   }
 }
 
@@ -736,10 +843,19 @@ function parseOutputToTables(text) {
         }
         html += `</tr></thead>`;
 
+        // Rows of a named predicate carry their atom text so a click can
+        // ask the engine to explain the tuple's derivation.
+        const pred = part.title.replace(/^\?-\s*/, "");
+        const explainable = /^[a-z][A-Za-z0-9_]*$/.test(pred);
         html += `<tbody>`;
         for (let r = 0; r < part.rows.length; r++) {
           const row = part.rows[r];
-          html += `<tr>`;
+          if (explainable) {
+            const atom = `${pred}(${row.join(", ")})`;
+            html += `<tr data-atom="${escapeAttr(atom)}" title="Click to explain how this tuple was derived">`;
+          } else {
+            html += `<tr>`;
+          }
           html += `<td class="index-col">${r + 1}</td>`;
           for (const val of row) {
             html += `<td>${escapeHtml(cleanValue(val))}</td>`;
@@ -810,9 +926,11 @@ if (typeof document !== "undefined") {
   outputTableEl = document.getElementById("output-table");
   viewTextEl = document.getElementById("view-text");
   viewTableEl = document.getElementById("view-table");
+  viewToggleEl = document.getElementById("view-toggle");
   statusEl = document.getElementById("status");
   examplesEl = document.getElementById("examples");
   runEl = document.getElementById("run");
+  planEl = document.getElementById("plan");
   shareEl = document.getElementById("share");
   loadEl = document.getElementById("load");
   downloadEl = document.getElementById("download");
@@ -828,6 +946,13 @@ if (typeof document !== "undefined") {
   editorPane = document.querySelector(".editor-pane");
 
   // Examples dropdown.
+  const customOption = document.createElement("option");
+  customOption.value = "custom";
+  customOption.textContent = "[Custom / Edited]";
+  customOption.disabled = true;
+  customOption.hidden = true;
+  examplesEl.appendChild(customOption);
+
   for (const [index, example] of EXAMPLES.entries()) {
     const option = document.createElement("option");
     option.value = String(index);
@@ -961,6 +1086,7 @@ if (typeof document !== "undefined") {
   });
 
   runEl.addEventListener("click", execute);
+  planEl.addEventListener("click", showPlan);
   shareEl.addEventListener("click", share);
 
   downloadEl.addEventListener("click", () => {
@@ -983,6 +1109,7 @@ if (typeof document !== "undefined") {
     outputEl.textContent = "";
     outputEl.classList.remove("error");
     outputTableEl.innerHTML = "";
+    if (viewToggleEl) viewToggleEl.classList.add("hidden");
     setStatus("CLEARED", "cleared");
     telemetryInfoEl.textContent = "";
   });
@@ -1057,6 +1184,14 @@ if (typeof document !== "undefined") {
 
   viewTextEl.addEventListener("click", () => setView("text"));
   viewTableEl.addEventListener("click", () => setView("table"));
+
+  // Delegated listener: clicking a result row explains its derivation.
+  outputTableEl.addEventListener("click", (event) => {
+    if (event.target.closest(".copy-table-btn")) return;
+    const row = event.target.closest("tr[data-atom]");
+    if (!row) return;
+    explainAtom(row.dataset.atom);
+  });
 
   // Delegated listener to copy a table's data in TSV format (ignoring the index column)
   outputTableEl.addEventListener("click", (event) => {

@@ -13,14 +13,20 @@
 //! rule      = head ":-" body "."
 //! query     = "?-" atom "."
 //! head      = atom with at most one aggregate argument `func(Var)`
-//! body      = literal { "," literal }
+//! body      = body_item { "," body_item }
+//! body_item = literal | comparison
 //! literal   = [ "not" ] atom
+//! comparison = term cmp_op term
+//! cmp_op    = "<" | "<=" | ">" | ">=" | "=" | "!="
 //! atom      = pred_name "(" [ term { "," term } ] ")"
 //! term      = Variable | "_" | integer | string
 //! ```
 //!
 //! Constants are integers or quoted strings; bare lowercase identifiers are
 //! not constants. `not`, `count`, `sum`, `min`, and `max` are reserved.
+//! Comparisons are filters: every comparison variable must also occur in a
+//! positive body literal, and wildcards are not allowed. Ordered operators
+//! compare integers; a string operand fails the comparison.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -276,28 +282,11 @@ const Parser = struct {
             try r.head(terms);
         }
 
-        // Body literals.
+        // Body items: a term opens a comparison, anything else a literal.
         while (true) {
-            var negated = false;
-            if (self.current.kind == .ident_lower and
-                std.mem.eql(u8, self.lexer.text(self.current), "not"))
-            {
-                negated = true;
-                try self.advance();
-            }
-
-            const name_token = try self.predName();
-            const args = try self.parseArgs(false);
-            const pred = try self.declare(name_token, @intCast(args.len));
-
-            const terms = try self.arena().alloc(ast.Term, args.len);
-            for (args, 0..) |arg, i| {
-                terms[i] = try self.toTerm(&r, arg);
-            }
-            if (negated) {
-                try r.neg(pred, terms);
-            } else {
-                try r.pos(pred, terms);
+            switch (self.current.kind) {
+                .ident_upper, .wildcard, .integer, .string => try self.comparison(&r),
+                else => try self.bodyLiteral(&r),
             }
 
             if (self.current.kind == .comma) {
@@ -309,6 +298,58 @@ const Parser = struct {
         }
 
         try r.finish();
+    }
+
+    fn bodyLiteral(self: *Parser, r: *builder_mod.RuleBuilder) ParseError!void {
+        var negated = false;
+        if (self.current.kind == .ident_lower and
+            std.mem.eql(u8, self.lexer.text(self.current), "not"))
+        {
+            negated = true;
+            try self.advance();
+        }
+
+        const name_token = try self.predName();
+        const args = try self.parseArgs(false);
+        const pred = try self.declare(name_token, @intCast(args.len));
+
+        const terms = try self.arena().alloc(ast.Term, args.len);
+        for (args, 0..) |arg, i| {
+            terms[i] = try self.toTerm(r, arg);
+        }
+        if (negated) {
+            try r.neg(pred, terms);
+        } else {
+            try r.pos(pred, terms);
+        }
+    }
+
+    fn comparison(self: *Parser, r: *builder_mod.RuleBuilder) ParseError!void {
+        const lhs_span = self.current.span;
+        const lhs = try self.toTerm(r, try self.parseArg(false, 0));
+
+        const op: ast.CmpOp = switch (self.current.kind) {
+            .less_than => .lt,
+            .less_equal => .le,
+            .greater_than => .gt,
+            .greater_equal => .ge,
+            .equal => .eq,
+            .not_equal => .ne,
+            else => return self.fail(error.UnexpectedToken, self.current.span, "expected a comparison operator"),
+        };
+        try self.advance();
+
+        const rhs_span = self.current.span;
+        const rhs = try self.toTerm(r, try self.parseArg(false, 0));
+
+        r.cmp(lhs, op, rhs) catch |err| switch (err) {
+            error.InvalidComparison => return self.fail(
+                err,
+                .{ .start = lhs_span.start, .end = rhs_span.end },
+                "wildcards are not allowed in comparisons",
+            ),
+            else => return err,
+        };
     }
 
     fn query(self: *Parser) ParseError!void {
@@ -412,6 +453,33 @@ test "parse: negation, wildcards, and strings" {
     try std.testing.expectEqual(node_b, blocked_b);
 }
 
+test "parse: comparisons" {
+    var setup = TestSetup.init(std.testing.allocator);
+    defer setup.deinit();
+
+    try parse(&setup.program, &setup.interner,
+        \\person(1, 17). person(2, 30).
+        \\adult(X) :- person(X, Age), Age >= 18.
+        \\pair(X, Y) :- person(X, A), person(Y, B), X != Y, A < B.
+    , null);
+
+    const rules = setup.program.rules.items;
+    try std.testing.expectEqual(@as(usize, 2), rules.len);
+
+    try std.testing.expectEqual(@as(usize, 1), rules[0].compares.len);
+    try std.testing.expectEqual(ast.CmpOp.ge, rules[0].compares[0].op);
+    try std.testing.expectEqual(@as(u64, 18), rules[0].compares[0].rhs.constant);
+
+    try std.testing.expectEqual(@as(usize, 2), rules[1].compares.len);
+    try std.testing.expectEqual(ast.CmpOp.ne, rules[1].compares[0].op);
+    try std.testing.expectEqual(ast.CmpOp.lt, rules[1].compares[1].op);
+    // Comparison variables share ids with the literal occurrences.
+    try std.testing.expectEqual(
+        rules[1].body[0].atom.terms[0].variable,
+        rules[1].compares[0].lhs.variable,
+    );
+}
+
 test "parse: aggregate heads" {
     var setup = TestSetup.init(std.testing.allocator);
     defer setup.deinit();
@@ -451,6 +519,10 @@ test "parse: error cases" {
         .{ .source = "p(X) :- q(X), r(count(X)).", .err = error.UnexpectedToken },
         .{ .source = "t(count(X), sum(X)) :- q(X).", .err = error.MultipleAggregates },
         .{ .source = "p(1). p(1, 2).", .err = error.ArityConflict },
+        .{ .source = "p(X) :- q(X), X < _.", .err = error.InvalidComparison },
+        .{ .source = "p(X) :- q(X), X q(X).", .err = error.UnexpectedToken },
+        .{ .source = "p(X) :- q(X), X <.", .err = error.UnexpectedToken },
+        .{ .source = "p(X) :- q(X), not X < 1.", .err = error.UnexpectedToken },
     };
 
     for (cases) |case| {

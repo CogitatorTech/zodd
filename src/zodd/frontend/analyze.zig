@@ -5,8 +5,8 @@
 //! Checks performed:
 //! - Wildcard lowering: each `_` occurrence becomes a fresh rule variable.
 //! - Safety (range restriction): every head variable, every variable in a
-//!   negated literal, and every aggregated variable must occur in a positive
-//!   body literal.
+//!   negated literal, every comparison variable, and every aggregated
+//!   variable must occur in a positive body literal.
 //! - Stratification: the predicate dependency graph must have no cycle
 //!   through a negative edge (negation or aggregation). Strata are assigned
 //!   so negated and aggregated predicates are fully computed before use.
@@ -24,6 +24,7 @@ const ast = @import("ast.zig");
 pub const AnalyzeError = error{
     UnsafeHeadVariable,
     UnsafeNegatedVariable,
+    UnsafeComparisonVariable,
     UnsafeAggregate,
     NegationCycle,
 } || Allocator.Error;
@@ -137,6 +138,14 @@ fn checkSafety(
         for (literal.atom.terms) |term| {
             if (term == .variable and !bound.isSet(term.variable)) {
                 return fail(program, diagnostic, rule, error.UnsafeNegatedVariable, "variable in negated literal not bound by a positive body literal");
+            }
+        }
+    }
+
+    for (rule.compares) |compare| {
+        for ([_]ast.Term{ compare.lhs, compare.rhs }) |term| {
+            if (term == .variable and !bound.isSet(term.variable)) {
+                return fail(program, diagnostic, rule, error.UnsafeComparisonVariable, "comparison variable not bound by a positive body literal");
             }
         }
     }
@@ -450,6 +459,34 @@ test "analyze: rejects unsafe negated variable" {
     try r.finish();
 
     try std.testing.expectError(error.UnsafeNegatedVariable, analyze(&program, null));
+}
+
+test "analyze: rejects unsafe comparison variable" {
+    const allocator = std.testing.allocator;
+    const Builder = @import("builder.zig").Builder;
+    const Interner = @import("interner.zig").Interner;
+
+    var program = ast.Program.init(allocator);
+    defer program.deinit();
+    var interner = Interner.init(allocator);
+    defer interner.deinit();
+    var builder = Builder{ .program = &program, .interner = &interner };
+
+    const q = try builder.predicate("q", 1);
+    const p = try builder.predicate("p", 1);
+
+    // p(X) :- q(X), X < Z.  (Z unbound)
+    var r = builder.rule(p);
+    const x = try r.v("X");
+    const z = try r.v("Z");
+    try r.head(&.{x});
+    try r.pos(q, &.{x});
+    try r.cmp(x, .lt, z);
+    try r.finish();
+
+    var diag = Diagnostic{};
+    try std.testing.expectError(error.UnsafeComparisonVariable, analyze(&program, &diag));
+    try std.testing.expect(diag.message.len > 0);
 }
 
 test "analyze: aggregates force a higher stratum" {

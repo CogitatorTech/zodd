@@ -31,8 +31,10 @@ const analyze_mod = @import("analyze.zig");
 const builder_mod = @import("builder.zig");
 const dyntuple = @import("dyntuple.zig");
 const evaluator_mod = @import("evaluator.zig");
+const explain_mod = @import("explain.zig");
 const interner_mod = @import("interner.zig");
 const parser_mod = @import("parser.zig");
+const plan_mod = @import("plan.zig");
 const DynTuple = dyntuple.DynTuple;
 
 pub const Value = interner_mod.Value;
@@ -43,6 +45,14 @@ pub const FrontendError = parser_mod.ParseError ||
     analyze_mod.AnalyzeError ||
     evaluator_mod.EvalError ||
     error{UnknownPredicate};
+
+/// Errors produced by `explainPlan` and `explain`.
+pub const ExplainError = FrontendError || std.Io.Writer.Error || error{
+    /// `explain` requires `track_provenance` set before the solve.
+    ProvenanceNotTracked,
+    /// The tuple given to `explain` is not in the predicate's relation.
+    TupleNotFound,
+};
 
 /// An embeddable Datalog database: facts and rules go in through `run`,
 /// `addFact`, or the `builder`; `solve` computes the fixed point; `query`
@@ -59,6 +69,9 @@ pub const Database = struct {
     /// Bounds the fixed-point rounds within each stratum;
     /// `error.MaxIterationsExceeded` when exceeded. Null means no limit.
     max_iterations: ?usize = null,
+    /// When true, `solve` records how each derived tuple was first obtained,
+    /// enabling `explain`. Costs one map entry per derived tuple.
+    track_provenance: bool = false,
 
     pub fn init(allocator: Allocator) Database {
         return Database{
@@ -104,6 +117,7 @@ pub const Database = struct {
 
         if (self.evaluator) |*old| old.deinit();
         self.evaluator = evaluator_mod.Evaluator.init(self.allocator, &self.program);
+        self.evaluator.?.track_provenance = self.track_provenance;
         try self.evaluator.?.solve(analysis.stratum_count, self.max_iterations);
     }
 
@@ -152,6 +166,61 @@ pub const Database = struct {
             .arity = info.arity,
             .interner = &self.interner,
         };
+    }
+
+    /// Writes the compiled join plan of every rule: steps, join keys,
+    /// constant and equality checks, and the head projection. Analyzes the
+    /// program first; analysis errors land in `lastDiagnostic`.
+    pub fn explainPlan(self: *Database, writer: *std.Io.Writer) ExplainError!void {
+        self.diagnostic = .{};
+        _ = try analyze_mod.analyze(&self.program, &self.diagnostic);
+
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+
+        for (self.program.rules.items, 0..) |*rule, i| {
+            const plan = try plan_mod.compile(arena.allocator(), rule);
+            if (i > 0) try writer.writeAll("\n");
+            try explain_mod.writePlan(writer, &self.program, &self.interner, rule, &plan);
+        }
+    }
+
+    /// Writes the proof tree showing how a derived tuple was obtained:
+    /// the rule deriving it and, recursively, the ground premises. Requires
+    /// `track_provenance` set before the solve. `max_depth` bounds the
+    /// expanded rule levels; null means no bound.
+    pub fn explain(
+        self: *Database,
+        writer: *std.Io.Writer,
+        pred_name: []const u8,
+        row: []const Value,
+        max_depth: ?usize,
+    ) ExplainError!void {
+        if (self.evaluator == null) try self.solve();
+        const evaluator = &self.evaluator.?;
+        if (!evaluator.track_provenance) return error.ProvenanceNotTracked;
+
+        const name_atom = self.interner.find(pred_name) orelse return error.UnknownPredicate;
+        const pred = self.program.findPredicate(name_atom) orelse return error.UnknownPredicate;
+        const info = self.program.preds.items[pred];
+        if (row.len != info.arity) return error.ArityMismatch;
+
+        var tuple = dyntuple.zero_tuple;
+        for (row, 0..) |value, i| {
+            const atom = switch (value) {
+                .int => |v| try interner_mod.encodeInt(v),
+                .str => |s| self.interner.find(s) orelse return error.TupleNotFound,
+            };
+            dyntuple.set(&tuple, i, atom);
+        }
+
+        const relation = evaluator.relationOf(pred) orelse return error.TupleNotFound;
+        const range = dyntuple.gallopPrefix(relation.elements, &tuple, info.arity);
+        if (range.len == 0 or dyntuple.cmpPrefix(&range[0], &tuple, info.arity) != .eq) {
+            return error.TupleNotFound;
+        }
+
+        try explain_mod.writeProof(writer, &self.program, &self.interner, evaluator, pred, tuple, max_depth);
     }
 
     /// Details for the most recent parse, analysis, or solve error.
@@ -320,6 +389,43 @@ test "Database: strings, negation, and aggregates end to end" {
     try std.testing.expect(deg_a.next() == null);
 }
 
+test "Database: comparisons end to end" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+    db.track_provenance = true;
+
+    try db.run(
+        \\person(1, 17). person(2, 30). person(3, 18).
+        \\adult(X) :- person(X, Age), Age >= 18.
+    );
+    try db.solve();
+
+    var it = try db.query("adult", &.{null});
+    defer it.deinit();
+    try std.testing.expectEqual(@as(u64, 2), it.next().?.get(0).int);
+    try std.testing.expectEqual(@as(u64, 3), it.next().?.get(0).int);
+    try std.testing.expect(it.next() == null);
+
+    // The proof tree shows the grounded comparison.
+    var buffer: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try db.explain(&writer, "adult", &.{.{ .int = 2 }}, null);
+    try std.testing.expectEqualStrings(
+        \\adult(2)
+        \\  via rule 0: adult(X) :- person(X, Age), Age >= 18.
+        \\  person(2, 30) (fact)
+        \\  30 >= 18 (holds)
+        \\
+    , writer.buffered());
+
+    // Unsafe comparison variables are rejected at solve time.
+    try db.run("bad(X) :- person(X, _), X < Unbound.");
+    try std.testing.expectError(error.UnsafeComparisonVariable, db.solve());
+    try std.testing.expect(db.lastDiagnostic() != null);
+}
+
 test "Database: addFact and builder interoperate with run" {
     const allocator = std.testing.allocator;
 
@@ -402,6 +508,144 @@ test "Database: row formatting" {
     var writer = std.Io.Writer.fixed(&buffer);
     try writer.print("{f}", .{it.next().?});
     try std.testing.expectEqualStrings("(1, \"a\")", writer.buffered());
+}
+
+test "Database: explainPlan writes every rule's plan" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+
+    try db.run(
+        \\edge(1, 2).
+        \\path(X, Y) :- edge(X, Y).
+        \\path(X, Z) :- path(X, Y), edge(Y, Z).
+    );
+
+    var buffer: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try db.explainPlan(&writer);
+
+    try std.testing.expectEqualStrings(
+        \\rule 0 (stratum 0): path(X, Y) :- edge(X, Y).
+        \\  scan edge -> (X, Y)
+        \\  head path(X, Y)
+        \\
+        \\rule 1 (stratum 0): path(X, Z) :- path(X, Y), edge(Y, Z).
+        \\  scan path -> (X, Y)
+        \\  join edge on (Y) -> (Y, X, Z)
+        \\  head path(X, Z)
+        \\
+    , writer.buffered());
+}
+
+test "Database: explain writes a proof tree" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+    db.track_provenance = true;
+
+    try db.run(
+        \\edge(1, 2).
+        \\edge(2, 3).
+        \\path(X, Y) :- edge(X, Y).
+        \\path(X, Z) :- path(X, Y), edge(Y, Z).
+    );
+
+    var buffer: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    // Solves on demand, like query.
+    try db.explain(&writer, "path", &.{ .{ .int = 1 }, .{ .int = 3 } }, null);
+
+    try std.testing.expectEqualStrings(
+        \\path(1, 3)
+        \\  via rule 1: path(X, Z) :- path(X, Y), edge(Y, Z).
+        \\  path(1, 2)
+        \\    via rule 0: path(X, Y) :- edge(X, Y).
+        \\    edge(1, 2) (fact)
+        \\  edge(2, 3) (fact)
+        \\
+    , writer.buffered());
+
+    // max_depth stops expansion.
+    writer = std.Io.Writer.fixed(&buffer);
+    try db.explain(&writer, "path", &.{ .{ .int = 1 }, .{ .int = 3 } }, 0);
+    try std.testing.expectEqualStrings("path(1, 3) (depth limit)\n", writer.buffered());
+}
+
+test "Database: explain covers negation and aggregates" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+    db.track_provenance = true;
+
+    try db.run(
+        \\node("a"). node("b").
+        \\blocked("b").
+        \\safe(X) :- node(X), not blocked(X).
+        \\edge(1, 2). edge(1, 3).
+        \\deg(N, count(M)) :- edge(N, M).
+    );
+    try db.solve();
+
+    var buffer: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try db.explain(&writer, "safe", &.{.{ .str = "a" }}, null);
+    try std.testing.expectEqualStrings(
+        \\safe("a")
+        \\  via rule 0: safe(X) :- node(X), not blocked(X).
+        \\  node("a") (fact)
+        \\  not blocked("a") (absent)
+        \\
+    , writer.buffered());
+
+    writer = std.Io.Writer.fixed(&buffer);
+    try db.explain(&writer, "deg", &.{ .{ .int = 1 }, .{ .int = 2 } }, null);
+    try std.testing.expectEqualStrings(
+        \\deg(1, 2)
+        \\  via rule 1 (aggregate): deg(N, count(M)) :- edge(N, M).
+        \\
+    , writer.buffered());
+}
+
+test "Database: explain error surface" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+
+    try db.run("edge(1, 2). path(X, Y) :- edge(X, Y).");
+    try db.solve();
+
+    var buffer: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Solved without tracking.
+    try std.testing.expectError(
+        error.ProvenanceNotTracked,
+        db.explain(&writer, "path", &.{ .{ .int = 1 }, .{ .int = 2 } }, null),
+    );
+
+    db.track_provenance = true;
+    try db.solve();
+    try std.testing.expectError(
+        error.TupleNotFound,
+        db.explain(&writer, "path", &.{ .{ .int = 9 }, .{ .int = 9 } }, null),
+    );
+    try std.testing.expectError(
+        error.TupleNotFound,
+        db.explain(&writer, "path", &.{ .{ .str = "zzz" }, .{ .int = 2 } }, null),
+    );
+    try std.testing.expectError(
+        error.UnknownPredicate,
+        db.explain(&writer, "nope", &.{.{ .int = 1 }}, null),
+    );
+    try std.testing.expectError(
+        error.ArityMismatch,
+        db.explain(&writer, "path", &.{.{ .int = 1 }}, null),
+    );
 }
 
 test "Database: max iterations setting" {

@@ -1,6 +1,6 @@
 //! # Zodd
 //!
-//! Zodd is a small, embeddable Datalog engine in Zig.
+//! Zodd is a small embeddable Datalog engine in Zig.
 //!
 //! ## Quickstart
 //!
@@ -117,6 +117,9 @@ pub const RowIterator = frontend.RowIterator;
 /// Error set of the Datalog frontend (parsing, analysis, and evaluation).
 pub const FrontendError = frontend.FrontendError;
 
+/// Error set of `Database.explainPlan` and `Database.explain`.
+pub const ExplainError = frontend.ExplainError;
+
 /// Details for the most recent frontend error: message plus source span or
 /// rule index.
 pub const Diagnostic = frontend.Diagnostic;
@@ -140,6 +143,7 @@ test {
     _ = @import("zodd/frontend/join_runtime.zig");
     _ = @import("zodd/frontend/plan.zig");
     _ = @import("zodd/frontend/evaluator.zig");
+    _ = @import("zodd/frontend/explain.zig");
     _ = @import("zodd/frontend/token.zig");
     _ = @import("zodd/frontend/parser.zig");
     _ = frontend;

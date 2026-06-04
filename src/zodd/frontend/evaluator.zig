@@ -19,6 +19,7 @@ const Iteration = @import("../iteration.zig").Iteration;
 const IterateError = @import("../iteration.zig").IterateError;
 const ast = @import("ast.zig");
 const dyntuple = @import("dyntuple.zig");
+const interner_mod = @import("interner.zig");
 const plan_mod = @import("plan.zig");
 const join_runtime = @import("join_runtime.zig");
 const DynTuple = dyntuple.DynTuple;
@@ -29,12 +30,33 @@ pub const EvalError = plan_mod.PlanError || IterateError;
 const DynRelation = Relation(DynTuple);
 const DynVariable = Variable(DynTuple);
 
+/// How a derived tuple was first obtained. Recorded during `solve` when
+/// provenance tracking is enabled.
+pub const Derivation = union(enum) {
+    /// Seeded directly as a fact.
+    fact,
+    /// Derived by a plain rule. `binding` holds the value of every rule
+    /// variable, indexed by `VarId`; substituting it into the rule body
+    /// reconstructs the ground premises.
+    rule: struct { rule: u32, binding: DynTuple },
+    /// Derived by an aggregate rule; the fold has no single premise binding.
+    aggregate: u32,
+};
+
+/// Provenance map key: a tuple of a specific predicate.
+const ProvKey = struct { pred: ast.PredId, tuple: DynTuple };
+
 pub const Evaluator = struct {
     allocator: Allocator,
     program: *const ast.Program,
     /// Frozen relation per predicate: EDB facts up front, derived predicates
     /// as their stratum completes.
     results: std.AutoHashMapUnmanaged(ast.PredId, DynRelation),
+    /// When true, `solve` records a `Derivation` per derived tuple.
+    track_provenance: bool = false,
+    /// First recorded derivation per derived tuple. First-wins keeps proofs
+    /// well founded: a derivation only cites tuples from earlier rounds.
+    provenance: std.AutoHashMapUnmanaged(ProvKey, Derivation) = .empty,
 
     /// Initializes an evaluator for an analyzed program. The program must
     /// have passed `analyze` (strata assigned, wildcards lowered).
@@ -53,11 +75,24 @@ pub const Evaluator = struct {
             relation.deinit();
         }
         self.results.deinit(self.allocator);
+        self.provenance.deinit(self.allocator);
     }
 
     /// Returns the computed relation for a predicate, if any.
     pub fn relationOf(self: *const Evaluator, pred: ast.PredId) ?*const DynRelation {
         return self.results.getPtr(pred);
+    }
+
+    /// Returns the recorded derivation of a derived tuple, if any.
+    pub fn derivationOf(self: *const Evaluator, pred: ast.PredId, tuple: DynTuple) ?Derivation {
+        return self.provenance.get(.{ .pred = pred, .tuple = tuple });
+    }
+
+    /// Records the first derivation seen for a tuple; later derivations of
+    /// the same tuple are ignored.
+    fn record(self: *Evaluator, pred: ast.PredId, tuple: DynTuple, derivation: Derivation) Allocator.Error!void {
+        const entry = try self.provenance.getOrPut(self.allocator, .{ .pred = pred, .tuple = tuple });
+        if (!entry.found_existing) entry.value_ptr.* = derivation;
     }
 
     /// Runs the program to a fixed point, stratum by stratum.
@@ -100,6 +135,7 @@ pub const Evaluator = struct {
             relation.deinit();
         }
         self.results.clearRetainingCapacity();
+        self.provenance.clearRetainingCapacity();
     }
 
     /// Groups fact rows by predicate. Non-derived predicates freeze into
@@ -118,6 +154,17 @@ pub const Evaluator = struct {
             var relation = try DynRelation.fromSlice(self.allocator, rows[pred].items);
             errdefer relation.deinit();
             try self.results.put(self.allocator, @intCast(pred), relation);
+        }
+
+        // Facts seeding derived predicates need explicit provenance; rules
+        // may rederive them, and the fact must win.
+        if (self.track_provenance) {
+            for (self.program.preds.items, 0..) |info, pred| {
+                if (!info.derived) continue;
+                for (rows[pred].items) |tuple| {
+                    try self.record(@intCast(pred), tuple, .fact);
+                }
+            }
         }
 
         return rows;
@@ -303,6 +350,13 @@ pub const Evaluator = struct {
                     );
                     current = out.items;
                 },
+                .cmp => |cmp| {
+                    var out: std.ArrayListUnmanaged(DynTuple) = .empty;
+                    for (current) |*tuple| {
+                        if (satisfies(&cmp, tuple)) try out.append(arena, tuple.*);
+                    }
+                    current = out.items;
+                },
             }
             if (current.len == 0) return;
         }
@@ -312,7 +366,19 @@ pub const Evaluator = struct {
         switch (plan.head) {
             .plain => |head_cols| {
                 for (current) |*tuple| {
-                    try head_tuples.append(arena, projectHead(tuple, head_cols));
+                    const head_tuple = projectHead(tuple, head_cols);
+                    try head_tuples.append(arena, head_tuple);
+                    if (self.track_provenance) {
+                        // Re-index the intermediate from layout columns to
+                        // variable ids; the binding grounds the whole body.
+                        var binding = dyntuple.zero_tuple;
+                        for (plan.layout, 0..) |var_id, col| {
+                            dyntuple.set(&binding, var_id, dyntuple.get(tuple, col));
+                        }
+                        try self.record(rule.head.pred(), head_tuple, .{
+                            .rule = .{ .rule = rule_index, .binding = binding },
+                        });
+                    }
                 }
             },
             .aggregate => |agg| {
@@ -327,7 +393,11 @@ pub const Evaluator = struct {
                     &folded,
                 );
                 for (folded.items) |*tuple| {
-                    try head_tuples.append(arena, projectHead(tuple, agg.head_cols));
+                    const head_tuple = projectHead(tuple, agg.head_cols);
+                    try head_tuples.append(arena, head_tuple);
+                    if (self.track_provenance) {
+                        try self.record(rule.head.pred(), head_tuple, .{ .aggregate = rule_index });
+                    }
                 }
             },
         }
@@ -336,6 +406,35 @@ pub const Evaluator = struct {
             const head_var = ctx.vars.get(rule.head.pred()).?;
             try head_var.insertSlice(head_tuples.items);
         }
+    }
+
+    /// Evaluates a comparison filter on one intermediate tuple. Equality and
+    /// inequality compare raw atoms (interning makes equal values identical);
+    /// ordered operators compare integers, and a string operand fails the
+    /// comparison.
+    fn satisfies(cmp: *const plan_mod.CmpStep, tuple: *const DynTuple) bool {
+        const lhs = cmpValue(cmp.lhs, tuple);
+        const rhs = cmpValue(cmp.rhs, tuple);
+        switch (cmp.op) {
+            .eq => return lhs == rhs,
+            .ne => return lhs != rhs,
+            else => {},
+        }
+        if (interner_mod.isStr(lhs) or interner_mod.isStr(rhs)) return false;
+        return switch (cmp.op) {
+            .lt => lhs < rhs,
+            .le => lhs <= rhs,
+            .gt => lhs > rhs,
+            .ge => lhs >= rhs,
+            .eq, .ne => unreachable,
+        };
+    }
+
+    fn cmpValue(arg: plan_mod.CmpArg, tuple: *const DynTuple) dyntuple.Atom {
+        return switch (arg) {
+            .col => |col| dyntuple.get(tuple, col),
+            .constant => |constant| constant,
+        };
     }
 
     fn projectHead(tuple: *const DynTuple, head_cols: []const plan_mod.HeadCol) DynTuple {
@@ -545,6 +644,106 @@ test "Evaluator: aggregate over a derived relation" {
     try std.testing.expectEqual(@as(u64, 1), dyntuple.get(&result.elements[1], 1));
 }
 
+test "Evaluator: comparison filters" {
+    const allocator = std.testing.allocator;
+
+    var setup = TestSetup.init(allocator);
+    defer setup.deinit();
+    var b = setup.builder();
+
+    const person = try b.predicate("person", 2);
+    const adult = try b.predicate("adult", 1);
+    const pair = try b.predicate("pair", 2);
+
+    try b.fact(person, &.{ 1, 17 });
+    try b.fact(person, &.{ 2, 30 });
+    try b.fact(person, &.{ 3, 18 });
+
+    {
+        // adult(X) :- person(X, Age), Age >= 18.
+        var r = b.rule(adult);
+        const x = try r.v("X");
+        const age = try r.v("Age");
+        try r.head(&.{x});
+        try r.pos(person, &.{ x, age });
+        try r.cmp(age, .ge, try b.int(18));
+        try r.finish();
+    }
+    {
+        // pair(X, Y) :- person(X, A), person(Y, B), X != Y, A < B.
+        var r = b.rule(pair);
+        const x = try r.v("X");
+        const a = try r.v("A");
+        const y = try r.v("Y");
+        const bb = try r.v("B");
+        try r.head(&.{ x, y });
+        try r.pos(person, &.{ x, a });
+        try r.pos(person, &.{ y, bb });
+        try r.cmp(x, .ne, y);
+        try r.cmp(a, .lt, bb);
+        try r.finish();
+    }
+
+    var evaluator = Evaluator.init(allocator, &setup.program);
+    defer evaluator.deinit();
+    try setup.solve(&evaluator, null);
+
+    const adults = evaluator.relationOf(adult).?;
+    try std.testing.expectEqual(@as(usize, 2), adults.len());
+    try std.testing.expectEqual(@as(u64, 2), dyntuple.get(&adults.elements[0], 0));
+    try std.testing.expectEqual(@as(u64, 3), dyntuple.get(&adults.elements[1], 0));
+
+    // Ages 17 < 30, 17 < 18, 18 < 30: pairs (1, 2), (1, 3), (3, 2).
+    const pairs = evaluator.relationOf(pair).?;
+    try std.testing.expectEqual(@as(usize, 3), pairs.len());
+}
+
+test "Evaluator: ordered comparisons fail on string operands" {
+    const allocator = std.testing.allocator;
+
+    var setup = TestSetup.init(allocator);
+    defer setup.deinit();
+    var b = setup.builder();
+
+    const item = try b.predicate("item", 1);
+    const small = try b.predicate("small", 1);
+    const other = try b.predicate("other", 1);
+
+    try b.fact(item, &.{try b.interner.encode(.{ .str = "a" })});
+    try b.fact(item, &.{try b.interner.encode(.{ .int = 1 })});
+
+    {
+        // small(X) :- item(X), X < 5.  (the string never satisfies <)
+        var r = b.rule(small);
+        const x = try r.v("X");
+        try r.head(&.{x});
+        try r.pos(item, &.{x});
+        try r.cmp(x, .lt, try b.int(5));
+        try r.finish();
+    }
+    {
+        // other(X) :- item(X), X != "a".  (inequality works on any values)
+        var r = b.rule(other);
+        const x = try r.v("X");
+        try r.head(&.{x});
+        try r.pos(item, &.{x});
+        try r.cmp(x, .ne, try b.str("a"));
+        try r.finish();
+    }
+
+    var evaluator = Evaluator.init(allocator, &setup.program);
+    defer evaluator.deinit();
+    try setup.solve(&evaluator, null);
+
+    const smalls = evaluator.relationOf(small).?;
+    try std.testing.expectEqual(@as(usize, 1), smalls.len());
+    try std.testing.expectEqual(@as(u64, 1), dyntuple.get(&smalls.elements[0], 0));
+
+    const others = evaluator.relationOf(other).?;
+    try std.testing.expectEqual(@as(usize, 1), others.len());
+    try std.testing.expectEqual(@as(u64, 1), dyntuple.get(&others.elements[0], 0));
+}
+
 test "Evaluator: facts seed derived predicates" {
     const allocator = std.testing.allocator;
 
@@ -617,6 +816,70 @@ test "Evaluator: max iterations bounds the fixed point" {
     defer evaluator2.deinit();
     try setup.solve(&evaluator2, null);
     try std.testing.expectEqual(@as(usize, 55), evaluator2.relationOf(path).?.len());
+}
+
+test "Evaluator: provenance records facts and first derivations" {
+    const allocator = std.testing.allocator;
+
+    var setup = TestSetup.init(allocator);
+    defer setup.deinit();
+    var b = setup.builder();
+
+    const edge = try b.predicate("edge", 2);
+    const path = try b.predicate("path", 2);
+
+    try b.fact(edge, &.{ 1, 2 });
+    try b.fact(edge, &.{ 2, 3 });
+    try b.fact(path, &.{ 7, 8 }); // direct fact for a derived predicate
+
+    {
+        var r = b.rule(path);
+        const x = try r.v("X");
+        const y = try r.v("Y");
+        try r.head(&.{ x, y });
+        try r.pos(edge, &.{ x, y });
+        try r.finish();
+    }
+    {
+        var r = b.rule(path);
+        const x = try r.v("X");
+        const y = try r.v("Y");
+        const z = try r.v("Z");
+        try r.head(&.{ x, z });
+        try r.pos(path, &.{ x, y });
+        try r.pos(edge, &.{ y, z });
+        try r.finish();
+    }
+
+    var evaluator = Evaluator.init(allocator, &setup.program);
+    defer evaluator.deinit();
+    evaluator.track_provenance = true;
+    try setup.solve(&evaluator, null);
+
+    // The seeded fact wins over any rederivation.
+    const seeded = evaluator.derivationOf(path, dyntuple.fromSlice(&.{ 7, 8 })).?;
+    try std.testing.expect(seeded == .fact);
+
+    // path(1, 2) comes from rule 0 with X=1, Y=2.
+    const direct = evaluator.derivationOf(path, dyntuple.fromSlice(&.{ 1, 2 })).?;
+    try std.testing.expectEqual(@as(u32, 0), direct.rule.rule);
+    try std.testing.expectEqual(@as(u64, 1), dyntuple.get(&direct.rule.binding, 0));
+    try std.testing.expectEqual(@as(u64, 2), dyntuple.get(&direct.rule.binding, 1));
+
+    // path(1, 3) comes from rule 1 with X=1, Y=2, Z=3.
+    const step = evaluator.derivationOf(path, dyntuple.fromSlice(&.{ 1, 3 })).?;
+    try std.testing.expectEqual(@as(u32, 1), step.rule.rule);
+    try std.testing.expectEqual(@as(u64, 2), dyntuple.get(&step.rule.binding, 1));
+    try std.testing.expectEqual(@as(u64, 3), dyntuple.get(&step.rule.binding, 2));
+
+    // EDB tuples have no provenance entries.
+    try std.testing.expect(evaluator.derivationOf(edge, dyntuple.fromSlice(&.{ 1, 2 })) == null);
+
+    // Without tracking, nothing is recorded.
+    var plain = Evaluator.init(allocator, &setup.program);
+    defer plain.deinit();
+    try setup.solve(&plain, null);
+    try std.testing.expect(plain.derivationOf(path, dyntuple.fromSlice(&.{ 1, 2 })) == null);
 }
 
 test "Evaluator: rule with only negated body literals" {

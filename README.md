@@ -20,9 +20,7 @@ A small embeddable Datalog engine in Zig
 
 ---
 
-Zodd is a small [Datalog](https://en.wikipedia.org/wiki/Datalog) engine written in pure Zig.
-
-**You can try it in your browser [here](https://CogitatorTech.github.io/zodd/).**
+**You can try Zodd in your web browser [here](https://CogitatorTech.github.io/zodd/).**
 
 ### What is Datalog?
 
@@ -82,7 +80,7 @@ For example:
 - Implements semi-naive evaluation for efficient recursive query processing
 - Uses immutable, sorted, and deduplicated relations as core data structures
 - Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
-- Includes a Datalog frontend with a parser, a builder API, stratified negation, and aggregates
+- Includes a Datalog frontend with a parser, a builder API, stratified negation, aggregates, and comparison operators
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 
@@ -182,7 +180,7 @@ pub fn main() !void {
 
 You can find the API documentation for the latest release of Zodd [here](https://cogitatortech.github.io/zodd/api/#zodd.lib).
 
-### Examples
+#### Examples
 
 Check out the [examples](examples) directory for example usages of Zodd.
 
