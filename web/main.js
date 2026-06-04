@@ -380,23 +380,33 @@ async function loadWasm() {
   return instance.exports;
 }
 
-function runProgram(source) {
-  const sourceBytes = encoder.encode(source);
-  // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
-  let ptr = 0;
-  if (sourceBytes.length > 0) {
-    ptr = wasm.alloc(sourceBytes.length);
+// Calls a Wasm export taking (ptr, len) pairs, one per string argument.
+function wasmCall(fnName, strings) {
+  const buffers = strings.map((s) => encoder.encode(s));
+  const ptrs = buffers.map((bytes) => {
+    // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
+    if (bytes.length === 0) return 0;
+    const ptr = wasm.alloc(bytes.length);
     if (ptr === 0) throw new Error("Wasm allocation failed");
     // Views must be created after each call into Wasm: memory growth
     // detaches previously created typed arrays.
-    new Uint8Array(wasm.memory.buffer, ptr, sourceBytes.length).set(sourceBytes);
-  }
-  const status = wasm.run(ptr, sourceBytes.length);
-  if (ptr !== 0) wasm.dealloc(ptr, sourceBytes.length);
+    new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
+    return ptr;
+  });
+  const args = [];
+  buffers.forEach((bytes, i) => args.push(ptrs[i], bytes.length));
+  const status = wasm[fnName](...args);
+  buffers.forEach((bytes, i) => {
+    if (ptrs[i] !== 0) wasm.dealloc(ptrs[i], bytes.length);
+  });
   const out = decoder.decode(
     new Uint8Array(wasm.memory.buffer, wasm.outputPtr(), wasm.outputLen()),
   );
   return { status, out };
+}
+
+function runProgram(source) {
+  return wasmCall("run", [source]);
 }
 
 // --- Syntax highlighting ------------------------------------------------------
@@ -421,6 +431,10 @@ const TOKEN_CLASSES = [
 
 function escapeHtml(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replace(/"/g, "&quot;");
 }
 
 function highlight(source, errorLine = null) {
@@ -497,7 +511,7 @@ function copyToClipboard(text) {
 
 let activeErrorLine = null;
 
-let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, statusEl, examplesEl, runEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
+let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, statusEl, examplesEl, runEl, planEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
 
 function syncHighlight(errorLine = null) {
   activeErrorLine = errorLine;
@@ -594,6 +608,41 @@ function execute() {
     } else {
       syncHighlight(null);
     }
+  }
+}
+
+// Shows engine-generated explanation text (a plan or a proof tree) in the
+// text view, leaving the last run's table view intact.
+function showExplanation(result, okStatus) {
+  outputEl.textContent = result.out || "(no output)";
+  outputEl.classList.toggle("error", result.status !== 0);
+  setView("text");
+  if (result.status === 0) {
+    setStatus(okStatus, "ok");
+  } else {
+    setStatus("error", "error");
+  }
+}
+
+function showPlan() {
+  if (!wasm) return;
+  try {
+    showExplanation(wasmCall("explainPlan", [sourceEl.value]), "plan");
+  } catch (err) {
+    outputEl.textContent = `internal error: ${err}`;
+    outputEl.classList.add("error");
+    setStatus("trap", "error");
+  }
+}
+
+function explainAtom(atom) {
+  if (!wasm) return;
+  try {
+    showExplanation(wasmCall("explain", [sourceEl.value, atom]), "explained");
+  } catch (err) {
+    outputEl.textContent = `internal error: ${err}`;
+    outputEl.classList.add("error");
+    setStatus("trap", "error");
   }
 }
 
@@ -754,10 +803,19 @@ function parseOutputToTables(text) {
         }
         html += `</tr></thead>`;
 
+        // Rows of a named predicate carry their atom text so a click can
+        // ask the engine to explain the tuple's derivation.
+        const pred = part.title.replace(/^\?-\s*/, "");
+        const explainable = /^[a-z][A-Za-z0-9_]*$/.test(pred);
         html += `<tbody>`;
         for (let r = 0; r < part.rows.length; r++) {
           const row = part.rows[r];
-          html += `<tr>`;
+          if (explainable) {
+            const atom = `${pred}(${row.join(", ")})`;
+            html += `<tr data-atom="${escapeAttr(atom)}" title="Click to explain how this tuple was derived">`;
+          } else {
+            html += `<tr>`;
+          }
           html += `<td class="index-col">${r + 1}</td>`;
           for (const val of row) {
             html += `<td>${escapeHtml(cleanValue(val))}</td>`;
@@ -831,6 +889,7 @@ if (typeof document !== "undefined") {
   statusEl = document.getElementById("status");
   examplesEl = document.getElementById("examples");
   runEl = document.getElementById("run");
+  planEl = document.getElementById("plan");
   shareEl = document.getElementById("share");
   loadEl = document.getElementById("load");
   downloadEl = document.getElementById("download");
@@ -986,6 +1045,7 @@ if (typeof document !== "undefined") {
   });
 
   runEl.addEventListener("click", execute);
+  planEl.addEventListener("click", showPlan);
   shareEl.addEventListener("click", share);
 
   downloadEl.addEventListener("click", () => {
@@ -1082,6 +1142,14 @@ if (typeof document !== "undefined") {
 
   viewTextEl.addEventListener("click", () => setView("text"));
   viewTableEl.addEventListener("click", () => setView("table"));
+
+  // Delegated listener: clicking a result row explains its derivation.
+  outputTableEl.addEventListener("click", (event) => {
+    if (event.target.closest(".copy-table-btn")) return;
+    const row = event.target.closest("tr[data-atom]");
+    if (!row) return;
+    explainAtom(row.dataset.atom);
+  });
 
   // Delegated listener to copy a table's data in TSV format (ignoring the index column)
   outputTableEl.addEventListener("click", (event) => {

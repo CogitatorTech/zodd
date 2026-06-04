@@ -17,23 +17,33 @@ const exports = instance.exports;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-function run(source) {
-  const sourceBytes = encoder.encode(source);
-  // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
-  let ptr = 0;
-  if (sourceBytes.length > 0) {
-    ptr = exports.alloc(sourceBytes.length);
+// Calls a Wasm export taking (ptr, len) pairs, one per string argument.
+function call(fnName, strings) {
+  const buffers = strings.map((s) => encoder.encode(s));
+  const ptrs = buffers.map((bytes) => {
+    // Zero-length allocations return a dangling pointer; pass (0, 0) instead.
+    if (bytes.length === 0) return 0;
+    const ptr = exports.alloc(bytes.length);
     if (ptr === 0) throw new Error("alloc failed");
     // Create the view after alloc: memory growth detaches earlier views.
-    new Uint8Array(exports.memory.buffer, ptr, sourceBytes.length).set(sourceBytes);
-  }
-  const status = exports.run(ptr, sourceBytes.length);
-  if (ptr !== 0) exports.dealloc(ptr, sourceBytes.length);
-  // Re-view after run for the same reason.
+    new Uint8Array(exports.memory.buffer, ptr, bytes.length).set(bytes);
+    return ptr;
+  });
+  const args = [];
+  buffers.forEach((bytes, i) => args.push(ptrs[i], bytes.length));
+  const status = exports[fnName](...args);
+  buffers.forEach((bytes, i) => {
+    if (ptrs[i] !== 0) exports.dealloc(ptrs[i], bytes.length);
+  });
+  // Re-view after the call for the same reason.
   const out = decoder.decode(
     new Uint8Array(exports.memory.buffer, exports.outputPtr(), exports.outputLen()),
   );
   return { status, out };
+}
+
+function run(source) {
+  return call("run", [source]);
 }
 
 function expect(condition, message) {
@@ -88,6 +98,38 @@ const again = run("f(1). g(X) :- f(X). ?- g(1).");
 expect(again.status === 0, `repeat status is ${again.status}`);
 expect(again.out.includes("(1)"), "repeat run output missing");
 
+// Plan rendering.
+const closureSource = `
+  edge(1, 2). edge(2, 3). edge(3, 4).
+  path(X, Y) :- edge(X, Y).
+  path(X, Z) :- path(X, Y), edge(Y, Z).
+`;
+const plan = call("explainPlan", [closureSource]);
+expect(plan.status === 0, `plan status is ${plan.status}`);
+expect(plan.out.includes("scan edge -> (X, Y)"), "scan step missing from plan");
+expect(plan.out.includes("join edge on (Y)"), "join step missing from plan");
+expect(plan.out.includes("head path(X, Z)"), "head projection missing from plan");
+
+// Plan errors are reported, not trapped.
+const badPlan = call("explainPlan", ["p(X) :- q(Y)."]);
+expect(badPlan.status !== 0, "unsafe rule accepted by explainPlan");
+
+// Proof tree for a derived tuple.
+const proof = call("explain", [closureSource, "path(1, 3)"]);
+expect(proof.status === 0, `explain status is ${proof.status}`);
+expect(proof.out.includes("path(1, 3)"), "explained tuple missing from proof");
+expect(proof.out.includes("via rule"), "rule line missing from proof");
+expect(proof.out.includes("edge(1, 2) (fact)"), "fact leaf missing from proof");
+
+// Tuples outside the result set are reported, not trapped.
+const missing = call("explain", [closureSource, "path(3, 1)"]);
+expect(missing.status !== 0, "absent tuple accepted by explain");
+expect(missing.out.includes("not in the result set"), "absent tuple message missing");
+
+// Malformed atoms are reported, not trapped.
+const badAtom = call("explain", [closureSource, "path(1, "]);
+expect(badAtom.status !== 0, "malformed atom accepted by explain");
+
 // --- Regression and Unit Tests for JS logic in main.js ------------------------
 console.log("Running JS utility unit tests...");
 
@@ -119,6 +161,11 @@ const htmlTable = parseOutputToTables(textOutput);
 expect(htmlTable.includes('<table class="output-table-el">'), "tabular format missing from output table HTML");
 expect(htmlTable.includes('<h4 class="output-table-title">?- path</h4>'), "title missing from output table HTML");
 expect(htmlTable.includes("Col 1") && htmlTable.includes("Col 2"), "table columns headers missing");
+expect(htmlTable.includes('data-atom="path(1, 2)"'), "explain atom attribute missing from table rows");
+
+// String values keep their quotes inside the atom attribute.
+const htmlStrings = parseOutputToTables('safe:\n  ("a")\n');
+expect(htmlStrings.includes('data-atom="safe(&quot;a&quot;)"'), "quoted atom attribute missing");
 
 const emptyOutput = `(no results)\n`;
 const htmlEmpty = parseOutputToTables(emptyOutput);
