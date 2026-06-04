@@ -97,25 +97,25 @@
         <section>
             <h3>Basic Elements</h3>
             <ul>
-                <li><strong>Constants</strong>: Integers (such as <code>42</code>) or double-quoted strings (such as
+                <li><strong>Constants</strong>: integers (such as <code>42</code>) or double-quoted strings (such as
                     <code>"alice"</code>). Bare lowercase identifiers (such as <code>alice</code>) are not valid
                     constants.
                 </li>
-                <li><strong>Variables</strong>: Identifiers starting with an uppercase letter or an underscore (such as
+                <li><strong>Variables</strong>: identifiers starting with an uppercase letter or an underscore (such as
                     <code>X</code>, <code>Y</code>, or the wildcard <code>_</code>).
                 </li>
-                <li><strong>Facts</strong>: Assertions of the form <code>predicate(constants).</code> representing base
+                <li><strong>Facts</strong>: assertions of the form <code>predicate(constants).</code> representing base
                     data.
                     <pre><code>edge(1, 2).
 likes("alice", "tea").</code></pre>
                 </li>
-                <li><strong>Rules</strong>: Statements of the form <code>head :- body.</code>, where the body is a
+                <li><strong>Rules</strong>: statements of the form <code>head :- body.</code>, where the body is a
                     comma-separated list of subgoals (predicates applied to variables or constants) and optional
                     comparison filters.
                     <pre><code>path(X, Y) :- edge(X, Y).
 path(X, Z) :- path(X, Y), edge(Y, Z).</code></pre>
                 </li>
-                <li><strong>Queries</strong>: Requests of the form <code>?- predicate(arguments).</code>. When a query
+                <li><strong>Queries</strong>: requests of the form <code>?- predicate(arguments).</code>. When a query
                     is present, the engine returns only matching tuples; otherwise, all derived relations are returned.
                     <pre><code>?- path(1, X).</code></pre>
                 </li>
