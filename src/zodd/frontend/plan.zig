@@ -102,6 +102,9 @@ pub const Plan = struct {
     head: HeadKind,
     /// Final intermediate width (number of layout columns).
     width: u8,
+    /// Variables of the final intermediate's columns; every rule variable
+    /// is bound here once the step chain completes.
+    layout: []ast.VarId,
 };
 
 /// Compiles `rule` into a plan. Must run after `analyze` (wildcards lowered,
@@ -148,6 +151,7 @@ pub fn compile(arena: Allocator, rule: *const ast.Rule) PlanError!Plan {
         .steps = steps.items,
         .head = head,
         .width = @intCast(layout.items.len),
+        .layout = layout.items,
     };
 }
 

@@ -84,6 +84,9 @@ pub const Rule = struct {
     body: []Literal,
     /// Number of distinct rule-scoped variables, including lowered wildcards.
     var_count: u16,
+    /// Display names indexed by `VarId`. Variables lowered from wildcards
+    /// have ids at or past `var_names.len` and display as `_`.
+    var_names: []const []const u8 = &.{},
     /// Index of this rule within the program, for diagnostics.
     index: u32,
     span: Span = .{},

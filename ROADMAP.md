@@ -31,6 +31,7 @@ This document outlines the features implemented in Zodd and the future goals for
 - [ ] Streaming input
 - [x] Rule DSL (textual Datalog frontend with a parser, a builder API, stratified negation, and aggregates)
 - [x] Query planner
+- [x] Explain (rule plan rendering and tuple provenance proof trees)
 - [ ] Magic sets
 
 ### Development and Testing

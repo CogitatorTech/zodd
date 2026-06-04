@@ -189,6 +189,7 @@ pub const RuleBuilder = struct {
             .head = head_spec,
             .body = self.body.items,
             .var_count = @intCast(self.var_names.items.len),
+            .var_names = self.var_names.items,
             .index = @intCast(program.rules.items.len),
             .span = self.span,
         });
