@@ -1,6 +1,6 @@
 //! # Zodd
 //!
-//! Zodd is a small, embeddable Datalog engine in Zig.
+//! Zodd is a small embeddable Datalog engine in Zig.
 //!
 //! ## Quickstart
 //!

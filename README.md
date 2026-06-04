@@ -20,9 +20,7 @@ A small embeddable Datalog engine in Zig
 
 ---
 
-Zodd is a small [Datalog](https://en.wikipedia.org/wiki/Datalog) engine written in pure Zig.
-
-**You can try it in your browser [here](https://CogitatorTech.github.io/zodd/).**
+**You can try Zodd in your web browser [here](https://CogitatorTech.github.io/zodd/).**
 
 ### What is Datalog?
 
