@@ -545,7 +545,7 @@ function copyToClipboard(text) {
 
 let activeErrorLine = null;
 
-let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, statusEl, examplesEl, runEl, planEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
+let sourceEl, highlightEl, highlightCodeEl, outputEl, outputTableEl, viewTextEl, viewTableEl, viewToggleEl, statusEl, examplesEl, runEl, planEl, shareEl, loadEl, downloadEl, clearEl, clearOutputEl, telemetryInfoEl, fileEl, themeEl, aboutEl, aboutDialogEl, aboutCloseEl, dividerEl, editorPane;
 
 function syncHighlight(errorLine = null) {
   activeErrorLine = errorLine;
@@ -625,11 +625,14 @@ function execute() {
   outputEl.classList.toggle("error", result.status !== 0);
 
   if (result.status === 0) {
+    if (viewToggleEl) viewToggleEl.classList.remove("hidden");
     setStatus("SUCCESS", "ok");
     telemetryInfoEl.textContent = `Duration: ${elapsed} ms | Size: ${result.out.length} chars`;
     outputTableEl.innerHTML = parseOutputToTables(result.out);
     syncHighlight(null);
   } else {
+    if (viewToggleEl) viewToggleEl.classList.add("hidden");
+    setView("text");
     setStatus("error", "error");
     telemetryInfoEl.textContent = `Failed in ${elapsed} ms`;
     outputTableEl.innerHTML = `<div class="output-table-no-results" style="color: var(--error); white-space: pre-wrap; font-family: var(--mono);">${escapeHtml(result.out)}</div>`;
@@ -646,10 +649,13 @@ function execute() {
 }
 
 // Shows engine-generated explanation text (a plan or a proof tree) in the
-// text view, leaving the last run's table view intact.
+// text view. Clears stale table results and hides the view toggle.
 function showExplanation(result, okStatus) {
   outputEl.textContent = result.out || "(no output)";
   outputEl.classList.toggle("error", result.status !== 0);
+  outputTableEl.innerHTML = ""; // Clear stale table data
+  if (viewToggleEl) viewToggleEl.classList.add("hidden"); // Hide the view toggle
+  telemetryInfoEl.textContent = ""; // Clear stale telemetry info
   setView("text");
   if (result.status === 0) {
     setStatus(okStatus, "ok");
@@ -920,6 +926,7 @@ if (typeof document !== "undefined") {
   outputTableEl = document.getElementById("output-table");
   viewTextEl = document.getElementById("view-text");
   viewTableEl = document.getElementById("view-table");
+  viewToggleEl = document.getElementById("view-toggle");
   statusEl = document.getElementById("status");
   examplesEl = document.getElementById("examples");
   runEl = document.getElementById("run");
@@ -1102,6 +1109,7 @@ if (typeof document !== "undefined") {
     outputEl.textContent = "";
     outputEl.classList.remove("error");
     outputTableEl.innerHTML = "";
+    if (viewToggleEl) viewToggleEl.classList.add("hidden");
     setStatus("CLEARED", "cleared");
     telemetryInfoEl.textContent = "";
   });
