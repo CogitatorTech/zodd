@@ -49,6 +49,40 @@ q(Name, Book, Dollars) :-
 `,
   },
   {
+    name: "Comparison filters",
+    source: `% Service latencies checked against SLA limits with comparison operators.
+% Comparisons (<, <=, >, >=, =, !=) filter rule bodies; every comparison
+% variable must also occur in a positive body literal.
+%
+% Base facts: observed latencies (milliseconds) per service and probe, and
+% an SLA limit per service.
+latency("auth", 1, 12).
+latency("auth", 2, 18).
+latency("search", 1, 220).
+latency("search", 2, 250).
+latency("billing", 1, 95).
+latency("billing", 2, 80).
+
+sla("auth", 50).
+sla("search", 200).
+sla("billing", 100).
+
+% Rule: a probe breaches when its latency exceeds the service's limit.
+breach(S, P) :- latency(S, P, L), sla(S, Limit), L > Limit.
+
+% Rules: a service is healthy when no probe breached its SLA.
+flagged(S) :- breach(S, _).
+healthy(S) :- sla(S, _), not flagged(S).
+
+% Rules: worst observed latency per service, then a pairwise ordering.
+% Comparisons also apply to aggregate results in a later stratum.
+worst(S, max(L)) :- latency(S, _, L).
+slower_than(A, B) :- worst(A, LA), worst(B, LB), A != B, LA > LB.
+
+% No query: all derived relations are printed.
+`,
+  },
+  {
     name: "Network reachability",
     source: `% Which network zones can talk through routing and firewall rules?
 %
@@ -419,7 +453,7 @@ const TOKEN_RE = new RegExp(
     "\\b(\\d+)\\b", // 4: number
     "\\b([A-Z_][A-Za-z0-9_]*)\\b", // 5: variable
     "\\b([a-z][A-Za-z0-9_]*)\\b", // 6: predicate
-    "(\\?-|:-|[(),.])", // 7: punctuation
+    "(\\?-|:-|<=|>=|!=|[<>=(),.])", // 7: punctuation
   ].join("|"),
   "g",
 );

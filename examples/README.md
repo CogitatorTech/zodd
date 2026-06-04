@@ -10,7 +10,8 @@
 | 4 | [e4_rbac_authorization.zig](e4_rbac_authorization.zig)       | RBAC authorization with role hierarchy, joins, and denial filtering.       |
 | 5 | [e5_taint_analysis.zig](e5_taint_analysis.zig)               | Security taint analysis using leapfrog trie join for taint propagation.    |
 | 6 | [e6_dependency_resolution.zig](e6_dependency_resolution.zig) | Package dependency resolution with aggregation and reverse-dep index.      |
-| 7 | [e7_datalog_frontend.zig](e7_datalog_frontend.zig)           | Textual Datalog frontend with recursion, negation, and aggregates.        |
+| 7 | [e7_datalog_frontend.zig](e7_datalog_frontend.zig)           | Textual Datalog frontend with recursion, negation, and aggregates.         |
+| 8 | [e8_comparison_filters.zig](e8_comparison_filters.zig)       | Comparison filters for SLA monitoring over latencies and aggregates.       |
 
 #### Running Examples
 
@@ -30,4 +31,5 @@ zig build run-e4_rbac_authorization
 zig build run-e5_taint_analysis
 zig build run-e6_dependency_resolution
 zig build run-e7_datalog_frontend
+zig build run-e8_comparison_filters
 ```
