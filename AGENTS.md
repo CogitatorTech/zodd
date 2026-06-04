@@ -43,14 +43,17 @@ Priorities, in order:
 - `src/zodd/aggregate.zig`: Group-by and aggregation operations.
 - `src/zodd/frontend/`: Datalog frontend. `program.zig` is the public `Database` API; `token.zig` and `parser.zig` parse textual Datalog;
   `ast.zig` and `builder.zig` hold the shared IR and the programmatic builder; `analyze.zig` checks safety and stratification;
-  `dyntuple.zig`, `plan.zig`, `join_runtime.zig`, and `evaluator.zig` compile and run rules on the engine core.
+  `dyntuple.zig`, `plan.zig`, `join_runtime.zig`, and `evaluator.zig` compile and run rules on the engine core; `explain.zig` renders rule
+  plans and provenance proof trees.
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`, `frontend_tests.zig`).
 - `web/`: Web frontend. `zodd_wasm.zig` is the Wasm wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
   `smoke_test.mjs` is the Node.js smoke test run by `make web-test`.
-- `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e7_datalog_frontend.zig`) built as executables via
+- `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e8_comparison_filters.zig`) built as executables via
   `build.zig`.
 - `.github/workflows/`: CI workflows (`tests.yml` for unit and integration tests plus the Wasm smoke test, `docs.yml` for deploying the website:
-  the web frontend at the site root and API docs under `/api`).
+  the web frontend at the site root and API docs under `/api`, and `release.yml` for publishing the web frontend Docker image to GHCR).
+- `Dockerfile` / `.dockerignore`: Docker image for the web frontend (nginx serving the playground at the root and API docs under `/api`),
+  built and published by `release.yml`.
 - `build.zig` / `build.zig.zon`: Zig build configuration and package metadata.
 - `Makefile`: GNU Make wrapper around `zig build` targets.
 - `docs/`: Generated API docs land in `docs/api/` (produced by `make docs`).
