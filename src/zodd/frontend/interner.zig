@@ -24,6 +24,26 @@ pub const Value = union(enum) {
     str: []const u8,
 };
 
+/// Writes a value as a Datalog literal.
+pub fn writeValueLiteral(writer: *std.Io.Writer, value: Value) std.Io.Writer.Error!void {
+    switch (value) {
+        .int => |v| try writer.print("{d}", .{v}),
+        .str => |s| {
+            try writer.writeAll("\"");
+            for (s) |c| {
+                switch (c) {
+                    0x22 => try writer.writeAll(&.{ 0x5c, 0x22 }),
+                    0x5c => try writer.writeAll(&.{ 0x5c, 0x5c }),
+                    0x0a => try writer.writeAll(&.{ 0x5c, 0x6e }),
+                    0x09 => try writer.writeAll(&.{ 0x5c, 0x74 }),
+                    else => try writer.writeAll(&.{c}),
+                }
+            }
+            try writer.writeAll("\"");
+        },
+    }
+}
+
 /// Errors produced when encoding values into the atom space.
 pub const EncodeError = error{IntegerTooLarge};
 
@@ -130,6 +150,21 @@ test "Interner: round-trip ints and strings" {
 
     try std.testing.expectEqual(Value{ .int = 42 }, interner.resolve(int_atom));
     try std.testing.expectEqualStrings("x", interner.resolve(str_atom).str);
+}
+
+test "Interner: value literal formatting escapes strings" {
+    var buffer: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    const value = [_]u8{ 0x61, 0x22, 0x62, 0x5c, 0x63, 0x0a, 0x09 };
+    try writeValueLiteral(&writer, .{ .str = &value });
+
+    const expected = [_]u8{
+        0x22, 0x61, 0x5c, 0x22, 0x62, 0x5c,
+        0x5c, 0x63, 0x5c, 0x6e, 0x5c, 0x74,
+        0x22,
+    };
+    try std.testing.expectEqualSlices(u8, &expected, writer.buffered());
 }
 
 test "Interner: integers must fit in 63 bits" {

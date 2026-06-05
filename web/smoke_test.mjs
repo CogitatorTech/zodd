@@ -156,9 +156,17 @@ expect(t3.length === 0, "empty parseTuple should return empty array");
 const t4 = parseTuple("   ");
 expect(t4.length === 0, "whitespace-only parseTuple should return empty array");
 
+const t5 = parseTuple(String.raw`"line\n", "quote\"", "path\\root"`);
+expect(
+    t5.length === 3 && t5[0] === String.raw`"line\n"` && t5[1] === String.raw`"quote\""` && t5[2] === String.raw`"path\\root"`,
+    "parseTuple should preserve escaped string contents",
+);
+
 // 2. cleanValue
 expect(cleanValue('"hello"') === "hello", "cleanValue unquote failed");
 expect(cleanValue('"hello\\nworld"') === "hello\nworld", "cleanValue newline escaped failed");
+expect(cleanValue(String.raw`"quote\""`) === "quote\"", "cleanValue escaped quote failed");
+expect(cleanValue(String.raw`"path\\root"`) === "path\\root", "cleanValue escaped backslash failed");
 expect(cleanValue("42") === "42", "cleanValue number unquoted failed");
 
 // 3. parseOutputToTables
@@ -176,6 +184,15 @@ expect(htmlTable.includes('data-atom="path(1, 2)"'), "explain atom attribute mis
 // String values keep their quotes inside the atom attribute.
 const htmlStrings = parseOutputToTables('safe:\n  ("a")\n');
 expect(htmlStrings.includes('data-atom="safe(&quot;a&quot;)"'), "quoted atom attribute missing");
+
+const htmlEscapedStrings = parseOutputToTables(String.raw`msg:
+  ("line\n", "quote\"", "path\\root")
+`);
+expect(htmlEscapedStrings.includes("line\n"), "escaped newline should render as a newline in table cells");
+expect(
+    htmlEscapedStrings.includes(String.raw`data-atom="msg(&quot;line\n&quot;, &quot;quote\&quot;&quot;, &quot;path\\root&quot;)"`),
+    "escaped atom attribute missing",
+);
 
 const emptyOutput = `(no results)\n`;
 const htmlEmpty = parseOutputToTables(emptyOutput);

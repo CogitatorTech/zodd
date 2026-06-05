@@ -20,10 +20,7 @@ fn predName(program: *const ast.Program, interner: *const Interner, pred: ast.Pr
 }
 
 fn writeValue(writer: *std.Io.Writer, interner: *const Interner, atom: dyntuple.Atom) WriteError!void {
-    switch (interner.resolve(atom)) {
-        .int => |v| try writer.print("{d}", .{v}),
-        .str => |s| try writer.print("\"{s}\"", .{s}),
-    }
+    try interner_mod.writeValueLiteral(writer, interner.resolve(atom));
 }
 
 fn writeVar(writer: *std.Io.Writer, rule: *const ast.Rule, var_id: ast.VarId) WriteError!void {

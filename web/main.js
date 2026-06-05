@@ -888,6 +888,7 @@ function parseTuple(str) {
             current += char;
             escape = false;
         } else if (char === '\\') {
+            current += char;
             escape = true;
         } else if (char === '"') {
             inQuotes = !inQuotes;
