@@ -66,30 +66,19 @@ reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
 % X = 3, Y = 4
 ```
 
-Datalog is used in many application domains, especially when recursive querying over structured data is needed.
-For example:
+Datalog is useful for recursive queries over structured data, such as:
 
-- Security and access control
-    - Role-based authorization with hierarchical permission inheritance and explicit denials
-    - Network reachability analysis through routing policies and firewall rules
-    - Taint analysis to trace untrusted data through program flows and detect vulnerabilities
-- Data governance and compliance
-    - Data lineage tracking through ETL pipelines for GDPR and CCPA compliance
-    - PII propagation analysis with anonymization checkpoints
-- Healthcare and life sciences
-    - Medical ontology reasoning with type hierarchies and property inheritance
-    - Drug-disease relationship inference and side effect prediction
-- Software engineering
-    - Dependency resolution with transitive closure and cycle detection
-    - Points-to analysis and other static analyses over program representations
+- **Access control**: managing role hierarchies and permissions.
+- **Data lineage**: tracking how data moves through a system.
+- **Software analysis**: resolving package dependencies or analyzing source code structure.
+- **Graph queries**: finding paths and connections between data points.
 
-### Why Zodd?
+### Features
 
-- Written in pure Zig with a simple API
-- Implements semi-naive evaluation for efficient recursive query processing
-- Uses immutable, sorted, and deduplicated relations as core data structures
-- Provides primitives for multi-way joins, anti-joins, secondary indexes, and aggregation
-- Includes a Datalog frontend with a parser, a builder API, stratified negation, aggregates, and comparison operators
+- **Pure Zig**: a simple API built specifically for Zig projects.
+- **Semi-naive evaluation**: handles recursion efficiently.
+- **Core operations**: supports multi-way joins, anti-joins, secondary indexes, and aggregation.
+- **Built-in frontend**: includes a Datalog parser, program builder, negation, and comparison filters.
 
 See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 
@@ -101,25 +90,24 @@ See [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
 
 ### Getting Started
 
-You can add Zodd to your project and start using it by following the steps below.
+Follow the steps below to add Zodd to your project.
 
 #### Installation
 
-Run the following command in the root directory of your project to download Zodd:
+Run this command in your project root to download Zodd:
 
 ```sh
 zig fetch --save=zodd "https://github.com/CogitatorTech/zodd/archive/<branch_or_tag>.tar.gz"
 ```
 
-Replace `<branch_or_tag>` with the desired branch or release tag, like `main` (for the developmental version) or `v0.1.0`.
-This command will download Zodd and add it to Zig's global cache and update your project's `build.zig.zon` file.
+Replace `<branch_or_tag>` with the branch or tag you want to use, such as `main` or `v0.1.0`.
 
 > [!NOTE]
 > Zodd is developed and tested with Zig version 0.16.0.
 
-#### Adding to Build Script
+#### Build Configuration
 
-Next, modify your `build.zig` file to make Zodd available to your build target as a module.
+Add Zodd as a module dependency in your `build.zig` file:
 
 ```zig
 pub fn build(b: *std.Build) void {
@@ -205,7 +193,8 @@ Zodd is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 ### Acknowledgements
 
-* The logo shows a directed graph that edges form a Z, with a dashed arc for the derived fact `path(a, d)`.
-* This project uses the [Minish](https://github.com/CogitatorTech/minish) for property-based testing and
-  the [Ordered](https://github.com/CogitatorTech/ordered) for B-tree indices.
-* Zodd is inspired and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.
+* The logo shows a directed graph whose edges form a Z, with a dashed arc for the derived fact `path(a, d)`.
+* This project uses [Minish](https://github.com/CogitatorTech/minish) for property-based testing and
+  [Ordered](https://github.com/CogitatorTech/ordered) for B-tree indices.
+* Zodd is inspired by and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.
+
