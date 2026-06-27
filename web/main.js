@@ -120,9 +120,9 @@ exposure(Z) :- allowed("internet", Z).
     },
     {
         name: "Knowledge graph",
-        source: `% A medical ontology: type hierarchy and property inheritance.
+        source: `% A simple ontology: type hierarchy and property inheritance.
 %
-% Base facts: define disease hierarchy, symptoms, drug targets, and target associations.
+% Base facts: define diseases, symptoms, drugs, and their relationships.
 is_a("heart_disease", "cardiovascular").
 is_a("arrhythmia", "heart_disease").
 is_a("hypertension", "cardiovascular").
@@ -148,7 +148,7 @@ associated_with("calcium_channel", "hypertension").
 associated_with("calcium_channel", "arrhythmia").
 
 % Rules:
-% Transitive subtyping for the disease classification hierarchy.
+% Transitive subtyping for the classification hierarchy.
 subtype(X, Y) :- is_a(X, Y).
 subtype(X, Z) :- subtype(X, Y), is_a(Y, Z).
 
@@ -171,9 +171,9 @@ side_effect(Drug, S) :- treats(Drug, D), symptom(D, S).
     },
     {
         name: "Data lineage",
-        source: `% PII flowing through an ETL pipeline; anonymization blocks it.
+        source: `% Sensitive data flowing through a pipeline; anonymization blocks it.
 %
-% Base facts: define initial PII sources, ETL transformations, anonymization boundaries, and public datasets.
+% Base facts: define sources, transformations, anonymization steps, and public datasets.
 source_pii("raw_users").
 source_pii("raw_logs").
 
@@ -196,16 +196,16 @@ public_dataset("public_dashboard").
 public_dataset("log_summary").
 
 % Rules:
-% Propagate PII status through transformations unless an anonymization step is applied.
+% Propagate sensitive status through transformations unless anonymized.
 contains_pii(D) :- source_pii(D).
 contains_pii(D2) :-
     contains_pii(D1), transform(D1, D2), not anonymizes(D1, D2).
 
-% Define a policy violation as a public dataset containing unanonymized PII.
+% Define a violation as public data containing sensitive information.
 violation(D) :- contains_pii(D), public_dataset(D).
 
 % Queries:
-% Query 1: which datasets contain PII?
+% Query 1: which datasets contain sensitive data?
 ?- contains_pii(D).
 % Query 2: which datasets violate the privacy policy?
 ?- violation(D).

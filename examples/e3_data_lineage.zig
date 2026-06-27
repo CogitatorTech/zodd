@@ -1,25 +1,24 @@
 const std = @import("std");
 const zodd = @import("zodd");
 
-// Data Lineage for GDPR/CCPA Compliance
+// Data Lineage Tracking
 //
-// Tracks how sensitive data (PII) flows through ETL pipelines and data
-// warehouse transformations. Identifies which downstream datasets contain
-// PII, verifies that anonymization steps properly cleanse data, and flags
-// compliance violations when PII appears in public-facing datasets.
+// Tracks how sensitive data flows through transformations. Identifies downstream
+// datasets containing sensitive information, and flags when sensitive information
+// reaches public datasets without anonymization.
 //
 // Datalog rules:
 //   contains_pii(D)  :- source_pii(D).
 //   contains_pii(D2) :- contains_pii(D1), transform(D1, D2),
 //                        NOT anonymizes(D1, D2).
 //   violation(D)     :- contains_pii(D), public_dataset(D).
-
+ 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    std.debug.print("Zodd Datalog Engine - Data Lineage for Compliance\n", .{});
+ 
+    std.debug.print("Zodd Datalog Engine - Data Lineage Tracking\n", .{});
     std.debug.print("=================================================\n\n", .{});
 
     // Data pipeline:

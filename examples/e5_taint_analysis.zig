@@ -1,10 +1,10 @@
 const std = @import("std");
 const zodd = @import("zodd");
 
-// Taint Analysis for Security
+// Taint Analysis
 //
-// Tracks the flow of untrusted (tainted) data through a program to detect
-// potential security vulnerabilities such as SQL injection and XSS.
+// Tracks how untrusted input flows through a program to detect potential
+// security vulnerabilities (like SQL injection).
 //
 // Datalog rules:
 //   tainted(V)        :- source(V).
@@ -13,13 +13,13 @@ const zodd = @import("zodd");
 //
 // Uses ExtendWith (leapfrog trie join) for taint propagation and
 // FilterAnti for sanitizer filtering.
-
+ 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    std.debug.print("Zodd Datalog Engine - Taint Analysis Example\n", .{});
+ 
+    std.debug.print("Zodd Datalog Engine - Taint Analysis\n", .{});
     std.debug.print("=============================================\n\n", .{});
 
     // Simulated program:

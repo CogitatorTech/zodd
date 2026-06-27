@@ -1,12 +1,10 @@
 const std = @import("std");
 const zodd = @import("zodd");
 
-// Network Reachability Analysis
+// Network Reachability
 //
-// Determines which network zones can communicate through routing policies and
-// firewall rules. A common task in enterprise security auditing to identify
-// unintended exposure paths. For example, verifying that the internet cannot
-// reach the database tier, or that PCI zones are properly isolated.
+// Determines which network zones can communicate based on routing and firewall
+// rules. For example, checking if someone from the internet can access the database.
 //
 // Datalog rules:
 //   reachable(A, B) :- link(A, B).
