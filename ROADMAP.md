@@ -1,6 +1,6 @@
 ## Project Roadmap
 
-This document outlines the features implemented in Zodd and the future goals for the project.
+This document lists the completed and planned features for Zodd.
 
 > [!IMPORTANT]
 > This roadmap is a work in progress and is subject to change.
@@ -18,7 +18,7 @@ This document outlines the features implemented in Zodd and the future goals for
 - [x] `FilterAnti` - negation (filter out matching tuples)
 - [x] `ExtendAnti` - anti-join (filter to keep non-matching values)
 
-### Extra Features
+### Other Features
 
 - [x] Negation primitives (anti-join and anti-extend)
 - [x] Aggregations

@@ -1,108 +1,179 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Zodd Datalog Engine</title>
-  <meta name="description" content="Run Datalog programs in the browser with Zodd Datalog engine.">
-  <link rel="icon" type="image/svg+xml" href="logo.svg">
-  <link rel="stylesheet" href="style.css">
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Zodd Datalog Engine</title>
+    <meta content="Run Datalog programs in the browser with Zodd Datalog engine." name="description">
+    <link href="logo.svg" rel="icon" type="image/svg+xml">
+    <link href="style.css" rel="stylesheet">
 </head>
 <body>
-  <header>
+<header>
     <div class="brand">
-      <img src="logo.svg" alt="Zodd logo" width="28" height="28">
-      <h1>Zodd Datalog Engine</h1>
+        <img alt="Zodd logo" height="28" src="logo.svg" width="28">
+        <h1>Zodd Datalog Engine</h1>
     </div>
     <nav>
-      <a href="api/#zodd.lib">API Docs</a>
-      <a href="https://github.com/CogitatorTech/zodd">GitHub</a>
-      <button id="about">About</button>
-      <button id="theme" title="Toggle the color theme">&#9728;</button>
+        <a href="api/#zodd.lib">API Docs</a>
+        <a href="https://github.com/CogitatorTech/zodd">GitHub</a>
+        <button id="help">Help</button>
+        <button id="about">About</button>
+        <button id="theme" title="Toggle the color theme">&#9728;</button>
     </nav>
-  </header>
+</header>
 
-  <div class="toolbar">
+<div class="toolbar">
     <div class="toolbar-group">
-      <label for="examples">Example:</label>
-      <select id="examples"></select>
+        <label for="examples">Example:</label>
+        <select id="examples"></select>
     </div>
 
     <div class="toolbar-group">
-      <button id="load" title="Load a Datalog script from filesystem">Load</button>
-      <button id="download" title="Download editor content as a Datalog script">Download</button>
-      <button id="share" title="Copy a permalink for sharing">Share</button>
+        <button id="load" title="Load a Datalog script from filesystem">Load</button>
+        <button id="download" title="Download editor content as a Datalog script">Download</button>
+        <button id="share" title="Copy a permalink for sharing">Share</button>
     </div>
 
     <div class="toolbar-group">
-      <button id="run" title="Execute program (Ctrl+Enter)">Execute</button>
-      <button id="plan" title="Show the compiled evaluation plan of each rule">Plan</button>
-      <button id="clear" title="Clear editor content">Clear</button>
+        <button id="run" title="Execute program (Ctrl+Enter)">Execute</button>
+        <button id="plan" title="Show the compiled evaluation plan of each rule">Plan</button>
+        <button id="clear" title="Clear editor content">Clear</button>
     </div>
 
-    <input id="file" type="file" accept=".dl,.datalog,.pl,.txt" hidden>
+    <input accept=".dl,.datalog,.pl,.txt" hidden id="file" type="file">
     <div id="status-container">
-      <span id="status"></span>
+        <span id="status"></span>
     </div>
-  </div>
+</div>
 
-  <main id="split">
+<main id="split">
     <section class="pane editor-pane">
-      <div class="editor-container">
-        <div class="editor-gutter" aria-hidden="true">
-          <div class="editor-linenos" id="linenos">1</div>
+        <div class="editor-container">
+            <div aria-hidden="true" class="editor-gutter">
+                <div class="editor-linenos" id="linenos">1</div>
+            </div>
+            <div class="editor">
+                <pre aria-hidden="true" id="highlight"><code id="highlight-code"></code></pre>
+                <textarea aria-label="Datalog source" autocapitalize="off" autocomplete="off"
+                          id="source" spellcheck="false" wrap="off"></textarea>
+            </div>
         </div>
-        <div class="editor">
-          <pre id="highlight" aria-hidden="true"><code id="highlight-code"></code></pre>
-          <textarea id="source" spellcheck="false" autocomplete="off"
-            autocapitalize="off" wrap="off" aria-label="Datalog source"></textarea>
-        </div>
-      </div>
     </section>
-    <div id="divider" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+    <div aria-orientation="vertical" id="divider" role="separator" title="Drag to resize"></div>
     <section class="pane output-pane">
-      <div class="output-header">
-        <span id="telemetry-info"></span>
-        <div id="view-toggle" class="view-toggle hidden">
-          <button id="view-text" class="active" title="Show raw text output">Text</button>
-          <button id="view-table" title="Show tabular results">Table</button>
+        <div class="output-header">
+            <span id="telemetry-info"></span>
+            <div class="view-toggle hidden" id="view-toggle">
+                <button class="active" id="view-text" title="Show raw text output">Text</button>
+                <button id="view-table" title="Show tabular results">Table</button>
+            </div>
+            <button id="clear-output" title="Clear output console">Clear Output</button>
         </div>
-        <button id="clear-output" title="Clear output console">Clear Output</button>
-      </div>
-      <pre id="output"><span class="loader-container"><span class="loader-spinner"></span>Initializing WebAssembly Engine...</span></pre>
-      <div id="output-table" class="hidden"></div>
+        <pre id="output"><span class="loader-container"><span
+            class="loader-spinner"></span>Initializing the Engine...</span></pre>
+        <div class="hidden" id="output-table"></div>
     </section>
-  </main>
+</main>
 
-  <footer>
+<footer>
     <span>Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run.
       Programs with <code>?-</code> queries answer them; otherwise all derived relations are printed.
       Click a row in the Table view to see how the tuple was derived.</span>
-  </footer>
+</footer>
 
-  <dialog id="about-dialog">
+<dialog id="help-dialog">
+    <h2>Zodd's Datalog Help</h2>
+    <div class="help-content">
+        <section>
+            <h3>Overview</h3>
+            <p>A Datalog program in Zodd consists of <strong>facts</strong>, <strong>rules</strong>, and optional
+                <strong>queries</strong>.
+                Lines starting with <code>%</code> are treated as comments and are ignored.
+                The words <code>not</code>, <code>count</code>, <code>sum</code>, <code>min</code>, and <code>max</code>
+                are reserved keywords.</p>
+        </section>
+
+        <section>
+            <h3>Basic Elements</h3>
+            <ul>
+                <li><strong>Constants</strong>: integers (such as <code>68</code>) or double-quoted strings (such as
+                    <code>"alice"</code>). Bare lowercase identifiers (such as <code>alice</code>) are not valid
+                    constants.
+                </li>
+                <li><strong>Variables</strong>: identifiers starting with an uppercase letter or an underscore (such as
+                    <code>X</code>, <code>Y</code>, or the wildcard <code>_</code>).
+                </li>
+                <li><strong>Facts</strong>: assertions of the form <code>predicate(constants).</code> representing base
+                    data.
+                    <pre><code>edge(1, 2).
+likes("alice", "tea").</code></pre>
+                </li>
+                <li><strong>Rules</strong>: statements of the form <code>head :- body.</code>, where the body is a
+                    comma-separated list of subgoals (predicates applied to variables or constants) and optional
+                    comparison filters.
+                    <pre><code>path(X, Y) :- edge(X, Y).
+path(X, Z) :- path(X, Y), edge(Y, Z).</code></pre>
+                </li>
+                <li><strong>Queries</strong>: requests of the form <code>?- predicate(arguments).</code>. When a query
+                    is present, the engine returns only matching tuples; otherwise, all derived relations are returned.
+                    <pre><code>?- path(1, X).</code></pre>
+                </li>
+            </ul>
+        </section>
+
+        <section>
+            <h3>Negation</h3>
+            <p>Negated subgoals use the <code>not</code> keyword. To ensure rule safety, every variable in a negated
+                subgoal must also appear in at least one positive subgoal within the same rule body.</p>
+            <pre><code>allowed(R, P) :- has_perm(R, P), not denied(R, P).</code></pre>
+        </section>
+
+        <section>
+            <h3>Comparison Filters</h3>
+            <p>Zodd supports the comparison operators <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>,
+                <code>=</code>, and <code>!=</code>. Every variable in a comparison must be bound by a positive subgoal
+                in the rule body, and wildcards are not allowed. Ordered comparisons compare integers; a string operand
+                will fail the comparison.</p>
+            <pre><code>hop(X, Y) :- edge(X, Y, W), W &lt; 60.
+reach(X, Z) :- reach(X, Y), hop(Y, Z), X != Z.</code></pre>
+        </section>
+
+        <section>
+            <h3>Aggregates</h3>
+            <p>Zodd supports aggregation functions in the heads of rules. The supported functions are <code>count</code>,
+                <code>sum</code>, <code>min</code>, and <code>max</code>. The argument to an aggregation function must
+                be a single variable.</p>
+            <pre><code>out_deg(N, count(M)) :- hop(N, M).
+fanout(P, count(D)) :- needs(P, D).</code></pre>
+        </section>
+    </div>
+    <button id="help-close">Close</button>
+</dialog>
+
+<dialog id="about-dialog">
     <h2>About Zodd</h2>
     <div class="about-content">
-      <p>Zodd is a small embeddable Datalog engine in Zig.
-      </p>
+        <p>Zodd is a small embeddable Datalog engine in Zig.
+        </p>
 
-      <div class="about-info">
-        <div class="about-row"><span>Version</span><span id="about-version">--</span></div>
-        <div class="about-row"><span>Build</span><span id="about-build">--</span></div>
-        <div class="about-row"><span>License</span><span id="about-license">--</span></div>
-      </div>
+        <div class="about-info">
+            <div class="about-row"><span>Version</span><span id="about-version">--</span></div>
+            <div class="about-row"><span>Build</span><span id="about-build">--</span></div>
+            <div class="about-row"><span>License</span><span id="about-license">--</span></div>
+        </div>
 
-      <p class="about-support">
-        If you enjoy Zodd, please consider supporting the project by giving it a
-        <a href="https://github.com/CogitatorTech/zodd" rel="noopener" target="_blank">star</a>
-        and making a
-        <a href="https://github.com/sponsors/habedi" rel="noopener" target="_blank">donation</a>
-        to help keep development going.
-      </p>
+        <p class="about-support">
+            If you enjoy Zodd, please consider supporting the project by giving it a
+            <a href="https://github.com/CogitatorTech/zodd" rel="noopener" target="_blank">star</a>
+            and making a
+            <a href="https://github.com/sponsors/habedi" rel="noopener" target="_blank">donation</a>
+            to help keep development going.
+        </p>
     </div>
     <button id="about-close">Close</button>
-  </dialog>
+</dialog>
 
-  <script src="main.js"></script>
+<script src="main.js"></script>
 </body>
 </html>

@@ -24,7 +24,8 @@ would like to work on or if it has already been resolved.
 - Write a clear description of the changes you made and the reasons behind them.
 
 > [!IMPORTANT]
-> It's assumed that by submitting a pull request, you agree to license your contributions under the project's license.
+> By submitting a pull request, you agree to license your contributions under the project's license.
+
 
 ### Development Workflow
 

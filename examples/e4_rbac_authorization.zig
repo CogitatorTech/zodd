@@ -1,22 +1,22 @@
 const std = @import("std");
 const zodd = @import("zodd");
 
-// Role-Based Access Control (RBAC) Authorization Engine
+// Role-Based Access Control (RBAC)
 //
-// Computes effective user permissions through role hierarchy inheritance,
-// permission grants, and explicit denials using Datalog rules:
+// Computes user permissions through role hierarchies, permission grants, and
+// explicit denials using Datalog rules:
 //
 //   has_role(U, R)   :- user_role(U, R).
 //   has_role(U, R2)  :- has_role(U, R1), role_hier(R1, R2).
 //   can_access(U, P) :- has_role(U, R), role_perm(R, P).
 //   effective(U, P)  :- can_access(U, P), NOT denied(U, P).
-
+ 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    std.debug.print("Zodd Datalog Engine - RBAC Authorization Example\n", .{});
+ 
+    std.debug.print("Zodd Datalog Engine - RBAC Authorization\n", .{});
     std.debug.print("=================================================\n\n", .{});
 
     // Identifiers (using u32 for simplicity):

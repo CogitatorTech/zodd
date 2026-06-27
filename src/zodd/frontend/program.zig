@@ -253,10 +253,7 @@ pub const Row = struct {
         var col: usize = 0;
         while (col < self.arity) : (col += 1) {
             if (col > 0) try writer.writeAll(", ");
-            switch (self.get(col)) {
-                .int => |v| try writer.print("{d}", .{v}),
-                .str => |s| try writer.print("\"{s}\"", .{s}),
-            }
+            try interner_mod.writeValueLiteral(writer, self.get(col));
         }
         try writer.writeAll(")");
     }
@@ -508,6 +505,33 @@ test "Database: row formatting" {
     var writer = std.Io.Writer.fixed(&buffer);
     try writer.print("{f}", .{it.next().?});
     try std.testing.expectEqualStrings("(1, \"a\")", writer.buffered());
+}
+
+test "Database: row formatting escapes strings" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+
+    const quoted = [_]u8{ 0x61, 0x22, 0x62 };
+    const line = [_]u8{ 0x6c, 0x69, 0x6e, 0x65, 0x0a };
+    const path = [_]u8{ 0x70, 0x61, 0x74, 0x68, 0x5c, 0x72, 0x6f, 0x6f, 0x74 };
+    try db.addFact("msg", &.{ .{ .str = &quoted }, .{ .str = &line }, .{ .str = &path } });
+
+    var it = try db.query("msg", &.{ null, null, null });
+    defer it.deinit();
+
+    var buffer: [96]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try writer.print("{f}", .{it.next().?});
+
+    const expected = [_]u8{
+        0x28, 0x22, 0x61, 0x5c, 0x22, 0x62, 0x22, 0x2c,
+        0x20, 0x22, 0x6c, 0x69, 0x6e, 0x65, 0x5c, 0x6e,
+        0x22, 0x2c, 0x20, 0x22, 0x70, 0x61, 0x74, 0x68,
+        0x5c, 0x5c, 0x72, 0x6f, 0x6f, 0x74, 0x22, 0x29,
+    };
+    try std.testing.expectEqualSlices(u8, &expected, writer.buffered());
 }
 
 test "Database: explainPlan writes every rule's plan" {

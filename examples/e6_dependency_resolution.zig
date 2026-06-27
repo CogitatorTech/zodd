@@ -1,10 +1,9 @@
 const std = @import("std");
 const zodd = @import("zodd");
 
-// Dependency Resolution for a Package Manager
+// Package Dependency Resolution
 //
-// Resolves transitive package dependencies, detects circular dependencies,
-// computes total install sizes, and supports reverse-dependency lookups.
+// Resolves package dependencies, detects cycles, and aggregates install sizes.
 //
 // Datalog rules:
 //   dep(A, B)    :- direct_dep(A, B).
@@ -15,13 +14,13 @@ const zodd = @import("zodd");
 //   - Variable + Relation for transitive closure
 //   - aggregate for computing total install size per package
 //   - SecondaryIndex for efficient reverse-dependency lookups
-
+ 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    std.debug.print("Zodd Datalog Engine - Dependency Resolution Example\n", .{});
+ 
+    std.debug.print("Zodd Datalog Engine - Package Dependency Resolution\n", .{});
     std.debug.print("===================================================\n\n", .{});
 
     // Package IDs:

@@ -1,12 +1,11 @@
 const std = @import("std");
 const zodd = @import("zodd");
 
-// Knowledge Graph Reasoning (Medical Ontology)
+// Knowledge Graph Reasoning
 //
-// Infers new biomedical facts from a medical ontology through type hierarchy
-// and property inheritance. This is a common pattern in healthcare, pharma,
-// and biotech for drug repurposing, adverse effect prediction, and clinical
-// decision support.
+// Infers facts from a hierarchical ontology. For example, inheriting symptoms
+// through type hierarchies (e.g., if a disease subtype inherits a symptom from
+// a supertype).
 //
 // Datalog rules:
 //   is_a(X, Z)          :- is_a(X, Y), is_a(Y, Z).
