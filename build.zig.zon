@@ -9,8 +9,8 @@
             .hash = "minish-0.3.0-SQtSTYI3AgCxWdWbKxS_lvmfbp0wJk29ZW5C9CozJaxm",
         },
         .ordered = .{
-            .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "ordered-0.2.0-Gy41sAAkAgBO3TZAn9nYuspdeDcD_sHLoIGEZY4pCDDM",
+            .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.2.1.tar.gz",
+            .hash = "ordered-0.2.1-Gy41sDCgAgA_QUoMf8Upew_Yx8sAPe7Fw_A2v5qP8GMK",
         },
     },
     .paths = .{ "build.zig", "build.zig.zon", "src", "LICENSE", "README.md" },
