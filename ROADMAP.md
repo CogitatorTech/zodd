@@ -25,9 +25,10 @@ This document lists the completed and planned features for Zodd.
 - [x] Recursion limits
 - [x] Persistence
 - [x] Secondary indices
-- [x] Incremental maintenance
-- [ ] Parallel execution
-- [ ] CLI
+- [x] Incremental maintenance (`Database.update` after `addFact`/`retract`: additions propagate as semi-naive deltas, deletions and
+  negation/aggregate effects recompute only the affected strata; tuple-level deletion (DRed) is a possible future refinement)
+- [x] Parallel execution (opt-in worker threads per fixed-point round via `Database.parallelism`; identical results to sequential evaluation)
+- [x] CLI (`zodd run`, `query` with demand-driven evaluation, `plan`, `explain`, and a `repl`, built on Chilli)
 - [ ] Streaming input
 - [x] Rule DSL (textual Datalog frontend with a parser, a builder API, stratified negation, and aggregates)
 - [x] Comparison operators (`<`, `<=`, `>`, `>=`, `=`, and `!=` as body filters)

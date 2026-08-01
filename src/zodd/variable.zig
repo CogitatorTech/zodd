@@ -73,6 +73,14 @@ pub fn Variable(comptime Tuple: type) type {
             try self.to_add.append(self.allocator, relation);
         }
 
+        /// Seeds the variable with an already-computed relation as stable
+        /// data: unlike `insert`, the tuples never enter the recent delta,
+        /// so a fixed point can resume from a previous result and re-derive
+        /// nothing. Takes ownership of the relation's storage.
+        pub fn seedStable(self: *Self, relation: Rel) Allocator.Error!void {
+            try self.stable.append(self.allocator, relation);
+        }
+
         /// Inserts a slice of tuples into the variable. The tuples are copied;
         /// the caller retains ownership of `tuples`.
         pub fn insertSlice(self: *Self, tuples: []const Tuple) Allocator.Error!void {
@@ -455,4 +463,26 @@ test "Variable: complete folds to_add when nothing has been processed yet" {
     defer result.deinit();
 
     try std.testing.expectEqualSlices(u32, &[_]u32{ 1, 2, 3 }, result.elements);
+}
+
+test "Variable: seedStable resumes without re-deriving the seed" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32 };
+
+    var v = Variable(Tuple).init(allocator);
+    defer v.deinit();
+
+    const seed = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{ .{1}, .{2} });
+    try v.seedStable(seed);
+    try v.insertSlice(&[_]Tuple{ .{2}, .{3} });
+
+    // Only the genuinely new tuple surfaces as recent.
+    try std.testing.expect(try v.changed());
+    try std.testing.expectEqual(@as(usize, 1), v.recent.len());
+    try std.testing.expectEqual(@as(u32, 3), v.recent.elements[0][0]);
+    try std.testing.expect(!(try v.changed()));
+
+    var complete = try v.complete();
+    defer complete.deinit();
+    try std.testing.expectEqual(@as(usize, 3), complete.len());
 }

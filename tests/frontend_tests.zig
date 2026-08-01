@@ -831,6 +831,144 @@ test "frontend: queryDemand evaluates only the demanded cone" {
     // only the demanded slice of the closure.
 }
 
+test "frontend: parallel evaluation matches sequential results" {
+    const allocator = testing.allocator;
+
+    // Mutually recursive rules across two predicates, negation and an
+    // aggregate in later strata, and arithmetic: several rule evaluations
+    // per round, so parallel workers get real overlap.
+    var source: std.ArrayListUnmanaged(u8) = .empty;
+    defer source.deinit(allocator);
+    var seed: u64 = 0x9e3779b97f4a7c15;
+    for (0..120) |_| {
+        seed = seed *% 6364136223846793005 +% 1442695040888963407;
+        const a = (seed >> 33) % 30;
+        const b = (seed >> 13) % 30;
+        try source.print(allocator, "edge({d}, {d}).\n", .{ a, b });
+    }
+    try source.appendSlice(allocator,
+        \\blocked(7). blocked(13).
+        \\even(X, Y) :- edge(X, Y).
+        \\even(X, Z) :- odd(X, Y), edge(Y, Z).
+        \\odd(X, Y) :- edge(X, Y).
+        \\odd(X, Z) :- even(X, Y), edge(Y, Z), X != Z.
+        \\open(X, Y) :- even(X, Y), not blocked(Y).
+        \\fan(N, count(M)) :- open(N, M).
+        \\big(N, C2) :- fan(N, C), C2 is C * 2, C2 > 2.
+    );
+
+    var sequential = zodd.Database.init(allocator);
+    defer sequential.deinit();
+    try sequential.run(source.items);
+    try sequential.solve();
+
+    var parallel = zodd.Database.init(allocator);
+    defer parallel.deinit();
+    parallel.parallelism = 4;
+    try parallel.run(source.items);
+    try parallel.solve();
+
+    for ([_][]const u8{ "even", "odd", "open", "fan", "big" }) |pred| {
+        var seq_rows: std.ArrayListUnmanaged([2]u64) = .empty;
+        defer seq_rows.deinit(allocator);
+        var seq_it = try sequential.query(pred, &.{ null, null });
+        defer seq_it.deinit();
+        while (seq_it.next()) |row| {
+            try seq_rows.append(allocator, .{ row.get(0).int, row.get(1).int });
+        }
+
+        var par_it = try parallel.query(pred, &.{ null, null });
+        defer par_it.deinit();
+        var i: usize = 0;
+        while (par_it.next()) |row| : (i += 1) {
+            try testing.expect(i < seq_rows.items.len);
+            try testing.expectEqual(seq_rows.items[i][0], row.get(0).int);
+            try testing.expectEqual(seq_rows.items[i][1], row.get(1).int);
+        }
+        try testing.expectEqual(seq_rows.items.len, i);
+        try testing.expect(seq_rows.items.len > 0);
+    }
+}
+
+test "frontend: facts added after solve become visible to queries" {
+    const allocator = testing.allocator;
+
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+
+    try db.run(
+        \\edge(1, 2). edge(2, 3).
+        \\path(X, Y) :- edge(X, Y).
+        \\path(X, Z) :- path(X, Y), edge(Y, Z).
+    );
+    try db.solve();
+
+    try db.addFact("edge", &.{ .{ .int = 3 }, .{ .int = 4 } });
+
+    // The new edge extends the closure: 3 old paths plus (3,4), (2,4),
+    // and (1,4).
+    var it = try db.query("path", &.{ null, null });
+    defer it.deinit();
+    var count: usize = 0;
+    while (it.next()) |_| count += 1;
+    try testing.expectEqual(@as(usize, 6), count);
+}
+
+test "frontend: update maintains mixed additions and retractions" {
+    const allocator = testing.allocator;
+
+    const rules =
+        \\path(X, Y) :- edge(X, Y).
+        \\path(X, Z) :- path(X, Y), edge(Y, Z).
+        \\reachable(Y) :- path(1, Y).
+        \\isolated(X) :- node(X), not reachable(X).
+        \\fan(N, count(M)) :- path(N, M).
+    ;
+
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+    try db.run(rules);
+    try db.run("node(1). node(2). node(3). node(4). node(5).");
+    try db.run("edge(1, 2). edge(2, 3). edge(4, 5).");
+    try db.solve();
+
+    // A batch of changes: connect 3 to 4, drop 4 to 5, add a node.
+    try db.addFact("edge", &.{ .{ .int = 3 }, .{ .int = 4 } });
+    try testing.expect(try db.retract("edge", &.{ .{ .int = 4 }, .{ .int = 5 } }));
+    try db.addFact("node", &.{.{ .int = 6 }});
+    try db.update();
+
+    // A fresh database with the same final facts must agree on every
+    // derived predicate.
+    var fresh = zodd.Database.init(allocator);
+    defer fresh.deinit();
+    try fresh.run(rules);
+    try fresh.run("node(1). node(2). node(3). node(4). node(5). node(6).");
+    try fresh.run("edge(1, 2). edge(2, 3). edge(3, 4).");
+    try fresh.solve();
+
+    const preds = [_]struct { name: []const u8, arity: usize }{
+        .{ .name = "path", .arity = 2 },
+        .{ .name = "reachable", .arity = 1 },
+        .{ .name = "isolated", .arity = 1 },
+        .{ .name = "fan", .arity = 2 },
+    };
+    for (preds) |pred| {
+        var pattern: [2]?zodd.Value = .{ null, null };
+        var expect_it = try fresh.query(pred.name, pattern[0..pred.arity]);
+        defer expect_it.deinit();
+        var got_it = try db.query(pred.name, pattern[0..pred.arity]);
+        defer got_it.deinit();
+        while (expect_it.next()) |want| {
+            const got = got_it.next() orelse return error.TestUnexpectedResult;
+            for (0..pred.arity) |i| {
+                try testing.expectEqual(want.get(i).int, got.get(i).int);
+            }
+        }
+        try testing.expect(got_it.next() == null);
+    }
+}
+
 test "frontend: stored queries parse and survive analysis" {
     const allocator = testing.allocator;
 

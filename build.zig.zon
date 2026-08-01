@@ -12,6 +12,10 @@
             .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.2.1.tar.gz",
             .hash = "ordered-0.2.1-Gy41sDCgAgA_QUoMf8Upew_Yx8sAPe7Fw_A2v5qP8GMK",
         },
+        .chilli = .{
+            .url = "https://github.com/CogitatorTech/chilli/archive/refs/tags/v0.3.2.tar.gz",
+            .hash = "chilli-0.3.2-c19PrireAQAXEfA7xrmJW2lrSiNiuuG8wtJI-MJVZgFU",
+        },
     },
     .paths = .{ "build.zig", "build.zig.zon", "src", "LICENSE", "README.md" },
 }

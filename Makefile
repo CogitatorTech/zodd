@@ -27,7 +27,7 @@ SHELL         := /usr/bin/env bash
 ################################################################################
 
 .PHONY: all build rebuild example test lint format docs docs-serve clean install-deps release help coverage \
- setup-hooks test-hooks web web-serve web-test
+ setup-hooks test-hooks web web-serve web-test cli
 .DEFAULT_GOAL := help
 
 help: ## Show the help messages for all targets
@@ -67,6 +67,10 @@ clean: ## Remove docs, build artifacts, and cache directories
 lint: ## Check code style and formatting of Zig files
 	@echo "Running code style checks..."
 	$(ZIG) fmt --check $(SRC_DIR) $(TEST_DIR) web/zodd_wasm.zig
+
+cli: ## Build the zodd CLI into zig-out/bin
+	@echo "Building the zodd CLI..."
+	$(ZIG) build cli $(BUILD_OPTS)
 
 web: ## Build the web frontend Wasm module and stage it under `web/`
 	@echo "Building the web frontend Wasm module..."

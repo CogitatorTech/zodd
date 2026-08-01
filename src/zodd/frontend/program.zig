@@ -77,6 +77,19 @@ pub const Database = struct {
     /// When true, `solve` records how each derived tuple was first obtained,
     /// enabling `explain`. Costs one map entry per derived tuple.
     track_provenance: bool = false,
+    /// Worker threads for rule evaluation within a fixed-point round: 1
+    /// (the default) evaluates sequentially, 0 uses one thread per CPU.
+    /// Values above 1 require a thread-safe allocator. Results are
+    /// identical to sequential evaluation. Ignored on single-threaded
+    /// targets and while `track_provenance` is set.
+    parallelism: usize = 1,
+    /// Facts and rules covered by the current `evaluator`; facts appended
+    /// past `solved_facts` are pending additions for `update`.
+    solved_facts: usize = 0,
+    solved_rules: usize = 0,
+    /// Facts retracted since the last solve; rows live in the program
+    /// arena.
+    pending_deletes: std.ArrayListUnmanaged(ast.Fact) = .empty,
 
     pub fn init(allocator: Allocator) Database {
         return Database{
@@ -89,6 +102,7 @@ pub const Database = struct {
     pub fn deinit(self: *Database) void {
         self.clearDemand();
         if (self.evaluator) |*evaluator| evaluator.deinit();
+        self.pending_deletes.deinit(self.allocator);
         self.program.deinit();
         self.interner.deinit();
     }
@@ -107,11 +121,11 @@ pub const Database = struct {
         try b.factValues(pred, row);
     }
 
-    /// Removes one occurrence of a previously added ground fact and
-    /// invalidates computed results; the next solve or query recomputes
-    /// from scratch. Returns true if a matching fact was removed. Only
-    /// base facts can be retracted; derived tuples disappear when the
-    /// facts deriving them do.
+    /// Removes one occurrence of a previously added ground fact. Returns
+    /// true if a matching fact was removed. Computed results are
+    /// maintained on the next `update`, `query`, or `solve`. Only base
+    /// facts can be retracted; derived tuples disappear when the facts
+    /// deriving them do.
     pub fn retract(self: *Database, pred_name: []const u8, row: []const Value) FrontendError!bool {
         const name_atom = self.interner.find(pred_name) orelse return error.UnknownPredicate;
         const pred = self.program.findPredicate(name_atom) orelse return error.UnknownPredicate;
@@ -130,13 +144,61 @@ pub const Database = struct {
         for (self.program.facts.items, 0..) |fact, i| {
             if (fact.pred != pred) continue;
             if (!std.mem.eql(u64, fact.row, encoded[0..row.len])) continue;
-            _ = self.program.facts.swapRemove(i);
-            self.clearDemand();
-            if (self.evaluator) |*evaluator| evaluator.deinit();
-            self.evaluator = null;
+            // Order-preserving removal keeps facts past `solved_facts` a
+            // contiguous suffix of pending additions.
+            const removed = self.program.facts.orderedRemove(i);
+            if (i < self.solved_facts) {
+                // A solved fact: its retraction must be maintained.
+                self.solved_facts -= 1;
+                if (self.evaluator != null) {
+                    try self.pending_deletes.append(self.allocator, removed);
+                }
+            }
             return true;
         }
         return false;
+    }
+
+    /// Incrementally maintains computed results after `addFact` and
+    /// `retract`: strata unaffected by the changes are left untouched, and
+    /// additions propagate as semi-naive deltas without re-deriving
+    /// existing tuples. Falls back to a full `solve` when rules changed,
+    /// no solve exists yet, or provenance is tracked.
+    pub fn update(self: *Database) FrontendError!void {
+        if (self.evaluator == null or self.track_provenance) return self.solve();
+        if (self.program.rules.items.len != self.solved_rules) return self.solve();
+
+        const added = self.program.facts.items[self.solved_facts..];
+        if (added.len == 0 and self.pending_deletes.items.len == 0) return;
+
+        self.diagnostic = .{};
+        const analysis = try analyze_mod.analyze(&self.program, &self.diagnostic);
+        if (analysis.recursive_assignment and self.max_iterations == null) {
+            return error.IterationLimitRequired;
+        }
+
+        self.clearDemand();
+        self.evaluator.?.parallelism = self.parallelism;
+        self.evaluator.?.maintain(
+            analysis.stratum_count,
+            self.max_iterations,
+            added,
+            self.pending_deletes.items,
+        ) catch |err| {
+            // Results may be partially maintained; drop them so the next
+            // query re-solves instead of serving inconsistent relations.
+            self.evaluator.?.deinit();
+            self.evaluator = null;
+            return err;
+        };
+        self.solved_facts = self.program.facts.items.len;
+        self.pending_deletes.clearRetainingCapacity();
+    }
+
+    fn hasPendingChanges(self: *const Database) bool {
+        return self.program.facts.items.len != self.solved_facts or
+            self.pending_deletes.items.len > 0 or
+            self.program.rules.items.len != self.solved_rules;
     }
 
     /// Parses Datalog source, appending its facts, rules, and queries to
@@ -173,14 +235,23 @@ pub const Database = struct {
             self.evaluator = null;
         }
         self.evaluator.?.track_provenance = self.track_provenance;
+        self.evaluator.?.parallelism = self.parallelism;
         try self.evaluator.?.solve(analysis.stratum_count, self.max_iterations);
+        self.solved_facts = self.program.facts.items.len;
+        self.solved_rules = self.program.rules.items.len;
+        self.pending_deletes.clearRetainingCapacity();
     }
 
     /// Queries a predicate with a partial binding: null columns are free.
-    /// Solves first if needed. The iterator borrows the database; it is
-    /// invalidated by the next `solve` or `deinit`.
+    /// Solves first if needed, and incrementally maintains results when
+    /// facts changed since the last solve. The iterator borrows the
+    /// database; it is invalidated by the next solve, update, or deinit.
     pub fn query(self: *Database, pred_name: []const u8, pattern: []const ?Value) FrontendError!RowIterator {
-        if (self.evaluator == null) try self.solve();
+        if (self.evaluator == null) {
+            try self.solve();
+        } else if (self.hasPendingChanges()) {
+            try self.update();
+        }
 
         const name_atom = self.interner.find(pred_name) orelse return error.UnknownPredicate;
         const pred = self.program.findPredicate(name_atom) orelse return error.UnknownPredicate;
@@ -249,6 +320,7 @@ pub const Database = struct {
         errdefer self.clearDemand();
         const demand_analysis = try analyze_mod.analyze(&self.demand_program.?, null);
         self.demand_evaluator = evaluator_mod.Evaluator.init(self.allocator, &self.demand_program.?);
+        self.demand_evaluator.?.parallelism = self.parallelism;
         try self.demand_evaluator.?.solve(demand_analysis.stratum_count, self.max_iterations);
 
         return self.rowsOf(&self.demand_evaluator.?, demand.query_pred, encoded, info.arity);
@@ -323,7 +395,13 @@ pub const Database = struct {
         row: []const Value,
         max_depth: ?usize,
     ) ExplainError!void {
-        if (self.evaluator == null) try self.solve();
+        if (self.evaluator == null) {
+            try self.solve();
+        } else if (self.hasPendingChanges()) {
+            // Provenance forces `update` into a full re-solve, keeping the
+            // recorded derivations consistent with the relations.
+            try self.update();
+        }
         const evaluator = &self.evaluator.?;
         if (!evaluator.track_provenance) return error.ProvenanceNotTracked;
 
@@ -846,4 +924,35 @@ test "Database: queryDemand computes only the demanded slice" {
         }
     }
     try std.testing.expect(derived_tuples < 5);
+}
+
+test "Database: update leaves unaffected strata untouched" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+
+    // Two independent derivations plus an aggregate stratum; adding an
+    // edge must not touch the `owns` predicate's stratum.
+    try db.run(
+        \\edge(1, 2). edge(2, 3).
+        \\thing("a", 1).
+        \\path(X, Y) :- edge(X, Y).
+        \\path(X, Z) :- path(X, Y), edge(Y, Z).
+        \\owns(O, T) :- thing(O, T).
+        \\fan(N, count(M)) :- path(N, M).
+    );
+    try db.solve();
+
+    const owns_pred = db.program.findPredicate(db.interner.find("owns").?).?;
+    const path_pred = db.program.findPredicate(db.interner.find("path").?).?;
+    const owns_before = db.evaluator.?.relationOf(owns_pred).?.elements.ptr;
+    const path_before_len = db.evaluator.?.relationOf(path_pred).?.len();
+
+    try db.addFact("edge", &.{ .{ .int = 3 }, .{ .int = 4 } });
+    try db.update();
+
+    // `owns` kept its exact storage; `path` grew by the delta.
+    try std.testing.expectEqual(owns_before, db.evaluator.?.relationOf(owns_pred).?.elements.ptr);
+    try std.testing.expectEqual(path_before_len + 3, db.evaluator.?.relationOf(path_pred).?.len());
 }

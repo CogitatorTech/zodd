@@ -45,6 +45,7 @@ Priorities, in order:
   `ast.zig` and `builder.zig` hold the shared IR and the programmatic builder; `analyze.zig` checks safety and stratification;
   `dyntuple.zig`, `plan.zig`, `join_runtime.zig`, and `evaluator.zig` compile and run rules on the engine core; `explain.zig` renders rule
   plans and provenance proof trees; `magic.zig` builds the demand-transformed (magic sets) program behind `Database.queryDemand`.
+- `src/cli/main.zig`: The `zodd` CLI executable (`run`, `query`, `plan`, `explain`, and `repl` subcommands), built via `zig build cli`.
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`, `frontend_tests.zig`).
 - `web/`: Web frontend. `zodd_wasm.zig` is the Wasm wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
   `smoke_test.mjs` is the Node.js smoke test run by `make web-test`.
@@ -86,10 +87,11 @@ The rest of `src/zodd/` is internal and may be refactored freely as long as the 
 
 ### Dependencies
 
-Zodd depends on two sibling Zig packages declared in `build.zig.zon`:
+Zodd depends on three sibling Zig packages declared in `build.zig.zon`:
 
 - `ordered`: sorted container primitives, linked into the `zodd` module for all builds.
 - `minish`: property-testing framework, used only by `tests/property_tests.zig` and lazy-loaded in `build.zig`.
+- `chilli`: CLI framework, used only by the `zodd` CLI executable (`src/cli/main.zig`).
 
 Please do not add further dependencies without prior discussion.
 

@@ -194,3 +194,73 @@ test "incremental maintenance: iteration reset with multiple variables" {
     try testing.expectEqual(@as(usize, 4), v1.totalLen());
     try testing.expectEqual(@as(usize, 2), v2.totalLen());
 }
+
+test "incremental maintenance: interleaved updates match fresh solves" {
+    const allocator = testing.allocator;
+
+    const rules =
+        \\path(X, Y) :- edge(X, Y).
+        \\path(X, Z) :- path(X, Y), edge(Y, Z).
+        \\dead(X) :- node(X), not alive(X).
+        \\alive(X) :- path(_, X).
+        \\load(N, count(M)) :- path(N, M).
+    ;
+
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+    try db.run(rules);
+    for (0..12) |i| {
+        try db.addFact("node", &.{.{ .int = i }});
+    }
+    try db.solve();
+
+    // A deterministic pseudo-random walk of additions and retractions;
+    // after each step the maintained database must agree with a fresh one
+    // built from the same fact set.
+    var live_edges: std.ArrayListUnmanaged([2]u64) = .empty;
+    defer live_edges.deinit(allocator);
+    var seed: u64 = 0x853c49e6748fea9b;
+    for (0..40) |_| {
+        seed = seed *% 6364136223846793005 +% 1442695040888963407;
+        const a = (seed >> 33) % 12;
+        const b = (seed >> 13) % 12;
+        const drop = live_edges.items.len > 4 and (seed >> 3) % 3 == 0;
+        if (drop) {
+            const victim = live_edges.swapRemove((seed >> 23) % live_edges.items.len);
+            try testing.expect(try db.retract("edge", &.{ .{ .int = victim[0] }, .{ .int = victim[1] } }));
+        } else {
+            try db.addFact("edge", &.{ .{ .int = a }, .{ .int = b } });
+            try live_edges.append(allocator, .{ a, b });
+        }
+
+        var fresh = zodd.Database.init(allocator);
+        defer fresh.deinit();
+        try fresh.run(rules);
+        for (0..12) |i| {
+            try fresh.addFact("node", &.{.{ .int = i }});
+        }
+        for (live_edges.items) |edge| {
+            try fresh.addFact("edge", &.{ .{ .int = edge[0] }, .{ .int = edge[1] } });
+        }
+        try fresh.solve();
+
+        for ([_]struct { name: []const u8, arity: usize }{
+            .{ .name = "path", .arity = 2 },
+            .{ .name = "dead", .arity = 1 },
+            .{ .name = "load", .arity = 2 },
+        }) |pred| {
+            var pattern: [2]?zodd.Value = .{ null, null };
+            var want_it = try fresh.query(pred.name, pattern[0..pred.arity]);
+            defer want_it.deinit();
+            var got_it = try db.query(pred.name, pattern[0..pred.arity]);
+            defer got_it.deinit();
+            while (want_it.next()) |want| {
+                const got = got_it.next() orelse return error.TestUnexpectedResult;
+                for (0..pred.arity) |col| {
+                    try testing.expectEqual(want.get(col).int, got.get(col).int);
+                }
+            }
+            try testing.expect(got_it.next() == null);
+        }
+    }
+}
