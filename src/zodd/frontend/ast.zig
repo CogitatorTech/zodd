@@ -73,14 +73,63 @@ pub const CmpOp = enum {
     }
 };
 
-/// A body comparison, like `X < Y`. Comparisons are filters: they bind no
-/// variables, so both sides must be bound by positive body literals.
-/// Equality and inequality compare any values; ordered operators compare
-/// integers, and a string operand fails the comparison.
+/// A binary arithmetic operator inside a comparison expression.
+pub const ArithOp = enum {
+    add,
+    sub,
+    mul,
+    div,
+
+    /// Returns the source spelling of the operator.
+    pub fn symbol(self: ArithOp) []const u8 {
+        return switch (self) {
+            .add => "+",
+            .sub => "-",
+            .mul => "*",
+            .div => "/",
+        };
+    }
+};
+
+/// Upper bound on the nodes (terms and operators) of one comparison side.
+/// Keeps recursive expression walks stack-safe on untrusted input.
+pub const MAX_EXPR_NODES = 64;
+
+/// One side of a comparison: a term, or unsigned integer arithmetic over
+/// terms. Arithmetic requires integer operands; a string operand, overflow,
+/// underflow, division by zero, or a result past the 63-bit atom range
+/// fails the enclosing comparison for that tuple.
+pub const Expr = union(enum) {
+    term: Term,
+    binop: *const BinExpr,
+};
+
+pub const BinExpr = struct {
+    op: ArithOp,
+    lhs: Expr,
+    rhs: Expr,
+};
+
+/// A body assignment, like `D2 is D + 1`. Assignments bind their target:
+/// every right-hand-side variable must be bound by positive body literals
+/// (or an earlier assignment), and the target must not be bound elsewhere.
+/// An assignment whose expression produces no value derives nothing for
+/// that tuple.
+pub const Assign = struct {
+    target: VarId,
+    expr: Expr,
+    span: Span = .{},
+};
+
+/// A body comparison, like `X < Y` or `W * 2 < 100`. Comparisons are
+/// filters: they bind no variables, so every variable on either side must
+/// be bound by positive body literals. Equality and inequality compare any
+/// values; ordered operators compare integers, and a string operand fails
+/// the comparison.
 pub const Compare = struct {
     op: CmpOp,
-    lhs: Term,
-    rhs: Term,
+    lhs: Expr,
+    rhs: Expr,
     span: Span = .{},
 };
 
@@ -117,6 +166,9 @@ pub const Rule = struct {
     body: []Literal,
     /// Body comparisons, applied as filters after the positive literals.
     compares: []Compare = &.{},
+    /// Body assignments, applied in order after the positive literals and
+    /// before the comparisons.
+    assigns: []Assign = &.{},
     /// Number of distinct rule-scoped variables, including lowered wildcards.
     var_count: u16,
     /// Display names indexed by `VarId`. Variables lowered from wildcards

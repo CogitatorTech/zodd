@@ -59,10 +59,17 @@ pub fn SecondaryIndex(
                 var mutable_single = single;
                 errdefer mutable_single.deinit();
                 var old_rel = rel_ptr.*;
-                const new_rel = try old_rel.merge(&mutable_single);
+                const new_rel = old_rel.merge(&mutable_single) catch |err| {
+                    // A failed merge still consumes its inputs, so the map
+                    // entry must not keep pointing at the old storage. The
+                    // consumed relation is valid and empty.
+                    rel_ptr.* = old_rel;
+                    return err;
+                };
                 rel_ptr.* = new_rel;
             } else {
-                const rel = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
+                var rel = try Relation(Tuple).fromSlice(self.allocator, &[_]Tuple{tuple});
+                errdefer rel.deinit();
                 try self.map.put(key, rel);
             }
         }
@@ -194,4 +201,91 @@ test "SecondaryIndex: getRange end is inclusive" {
     defer point.deinit();
     try std.testing.expectEqual(@as(usize, 1), point.len());
     try std.testing.expectEqual(@as(u32, 3), point.elements[0][0]);
+}
+
+test "SecondaryIndex: insert failure leaves the index memory-safe" {
+    // A duplicate insert routes through Relation.merge, whose shrink step can
+    // fail after the old relation's storage is gone. The map entry must never
+    // keep pointing at that freed storage.
+    const Tuple = struct { u32, u32 };
+    const Index = SecondaryIndex(Tuple, u32, struct {
+        fn extract(t: Tuple) u32 {
+            return t[1];
+        }
+    }.extract, u32Compare, 4);
+
+    // Fails every allocation, resize, and remap from `fail_index` onward
+    // until disarmed. Unlike std.testing.FailingAllocator it can be disarmed
+    // before deinit, so `deinit` (which allocates to walk the B-tree) can
+    // still free everything and the testing allocator can flag any leak,
+    // double free, or use-after-free from the insert path.
+    const OneShotFailing = struct {
+        inner: Allocator,
+        fail_index: usize,
+        index: usize = 0,
+
+        const vtable = Allocator.VTable{
+            .alloc = allocImpl,
+            .resize = resizeImpl,
+            .remap = remapImpl,
+            .free = freeImpl,
+        };
+
+        fn allocator(self: *@This()) Allocator {
+            return .{ .ptr = self, .vtable = &vtable };
+        }
+
+        fn armed(self: *const @This()) bool {
+            return self.index >= self.fail_index;
+        }
+
+        fn allocImpl(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            defer self.index += 1;
+            if (self.armed()) return null;
+            return self.inner.rawAlloc(len, alignment, ret_addr);
+        }
+
+        fn resizeImpl(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (self.armed()) return false;
+            return self.inner.rawResize(memory, alignment, new_len, ret_addr);
+        }
+
+        fn remapImpl(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (self.armed()) return null;
+            return self.inner.rawRemap(memory, alignment, new_len, ret_addr);
+        }
+
+        fn freeImpl(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.inner.rawFree(memory, alignment, ret_addr);
+        }
+    };
+
+    var fail_index: usize = 0;
+    while (fail_index < 12) : (fail_index += 1) {
+        var failing = OneShotFailing{ .inner = std.testing.allocator, .fail_index = fail_index };
+
+        var idx = Index.init(failing.allocator());
+        defer idx.deinit();
+
+        idx.insert(.{ 1, 10 }) catch {};
+        // Duplicate tuple: merge produces a shorter result, forcing the
+        // fallible shrink after the old storage is consumed.
+        idx.insert(.{ 1, 10 }) catch {};
+        idx.insert(.{ 2, 10 }) catch {};
+
+        // Whatever failed, lookups must not touch freed memory.
+        if (idx.get(10)) |rel| {
+            for (rel.elements) |t| {
+                std.mem.doNotOptimizeAway(t);
+            }
+        }
+
+        // Disarm before the deferred deinit: an allocation failure inside
+        // deinit's B-tree walk is a separate, documented limitation.
+        failing.fail_index = std.math.maxInt(usize);
+    }
 }

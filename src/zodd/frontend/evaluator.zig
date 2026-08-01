@@ -357,6 +357,16 @@ pub const Evaluator = struct {
                     }
                     current = out.items;
                 },
+                .assign => |assign| {
+                    var out: std.ArrayListUnmanaged(DynTuple) = .empty;
+                    for (current) |*tuple| {
+                        const value = cmpValue(assign.expr, tuple) orelse continue;
+                        var extended = tuple.*;
+                        dyntuple.set(&extended, assign.dest, value);
+                        try out.append(arena, extended);
+                    }
+                    current = out.items;
+                },
             }
             if (current.len == 0) return;
         }
@@ -388,7 +398,7 @@ pub const Evaluator = struct {
                     arena,
                     grouped.elements,
                     agg.group_len,
-                    agg.group_len,
+                    agg.val_col,
                     agg.func,
                     &folded,
                 );
@@ -413,8 +423,8 @@ pub const Evaluator = struct {
     /// ordered operators compare integers, and a string operand fails the
     /// comparison.
     fn satisfies(cmp: *const plan_mod.CmpStep, tuple: *const DynTuple) bool {
-        const lhs = cmpValue(cmp.lhs, tuple);
-        const rhs = cmpValue(cmp.rhs, tuple);
+        const lhs = cmpValue(cmp.lhs, tuple) orelse return false;
+        const rhs = cmpValue(cmp.rhs, tuple) orelse return false;
         switch (cmp.op) {
             .eq => return lhs == rhs,
             .ne => return lhs != rhs,
@@ -430,10 +440,27 @@ pub const Evaluator = struct {
         };
     }
 
-    fn cmpValue(arg: plan_mod.CmpArg, tuple: *const DynTuple) dyntuple.Atom {
+    /// Evaluates one comparison side. Null means the value does not exist:
+    /// arithmetic on a string operand, overflow, underflow, division by
+    /// zero, or a result past the 63-bit atom range. A null side fails the
+    /// comparison for that tuple.
+    fn cmpValue(arg: plan_mod.CmpArg, tuple: *const DynTuple) ?dyntuple.Atom {
         return switch (arg) {
             .col => |col| dyntuple.get(tuple, col),
             .constant => |constant| constant,
+            .binop => |binop| blk: {
+                const lhs = cmpValue(binop.lhs, tuple) orelse break :blk null;
+                const rhs = cmpValue(binop.rhs, tuple) orelse break :blk null;
+                if (interner_mod.isStr(lhs) or interner_mod.isStr(rhs)) break :blk null;
+                const result = switch (binop.op) {
+                    .add => std.math.add(u64, lhs, rhs) catch break :blk null,
+                    .sub => std.math.sub(u64, lhs, rhs) catch break :blk null,
+                    .mul => std.math.mul(u64, lhs, rhs) catch break :blk null,
+                    .div => if (rhs == 0) break :blk null else lhs / rhs,
+                };
+                if (result > interner_mod.PAYLOAD_MASK) break :blk null;
+                break :blk result;
+            },
         };
     }
 

@@ -7,7 +7,8 @@
 //! identifiers, `_` alone is the anonymous wildcard, integers are
 //! non-negative `u64` literals, strings are double-quoted with `\"`, `\\`,
 //! `\n`, and `\t` escapes, comparison operators are `<`, `<=`, `>`, `>=`,
-//! `=`, and `!=`, and `%` starts a line comment.
+//! `=`, and `!=`, arithmetic operators are `+`, `-`, `*`, and `/`, and `%`
+//! starts a line comment.
 
 const std = @import("std");
 const Span = @import("ast.zig").Span;
@@ -39,6 +40,10 @@ pub const TokenKind = enum {
     equal,
     /// `!=`
     not_equal,
+    plus,
+    minus,
+    star,
+    slash,
     eof,
 };
 
@@ -96,7 +101,10 @@ pub const Lexer = struct {
                 }
                 return error.InvalidCharacter;
             },
-            '-' => return error.NegativeInteger,
+            '+' => return self.single(.plus),
+            '-' => return self.single(.minus),
+            '*' => return self.single(.star),
+            '/' => return self.single(.slash),
             '<' => return self.maybeEqual(.less_than, .less_equal),
             '>' => return self.maybeEqual(.greater_than, .greater_equal),
             '=' => return self.single(.equal),
@@ -277,10 +285,12 @@ test "Lexer: comparison operators" {
 }
 
 test "Lexer: error cases" {
+    // `-` lexes as the minus operator; the parser rejects it in term
+    // position with error.NegativeInteger.
     var negative = Lexer.init("p(-1).");
     _ = try negative.next();
     _ = try negative.next();
-    try std.testing.expectError(error.NegativeInteger, negative.next());
+    try std.testing.expectEqual(TokenKind.minus, (try negative.next()).kind);
 
     var unterminated = Lexer.init("p(\"abc");
     _ = try unterminated.next();

@@ -44,7 +44,7 @@ Priorities, in order:
 - `src/zodd/frontend/`: Datalog frontend. `program.zig` is the public `Database` API; `token.zig` and `parser.zig` parse textual Datalog;
   `ast.zig` and `builder.zig` hold the shared IR and the programmatic builder; `analyze.zig` checks safety and stratification;
   `dyntuple.zig`, `plan.zig`, `join_runtime.zig`, and `evaluator.zig` compile and run rules on the engine core; `explain.zig` renders rule
-  plans and provenance proof trees.
+  plans and provenance proof trees; `magic.zig` builds the demand-transformed (magic sets) program behind `Database.queryDemand`.
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`, `frontend_tests.zig`).
 - `web/`: Web frontend. `zodd_wasm.zig` is the Wasm wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
   `smoke_test.mjs` is the Node.js smoke test run by `make web-test`.

@@ -32,6 +32,7 @@ const builder_mod = @import("builder.zig");
 const dyntuple = @import("dyntuple.zig");
 const evaluator_mod = @import("evaluator.zig");
 const explain_mod = @import("explain.zig");
+const magic = @import("magic.zig");
 const interner_mod = @import("interner.zig");
 const parser_mod = @import("parser.zig");
 const plan_mod = @import("plan.zig");
@@ -65,6 +66,10 @@ pub const Database = struct {
     program: ast.Program,
     interner: interner_mod.Interner,
     evaluator: ?evaluator_mod.Evaluator = null,
+    /// State of the last `queryDemand`: the rewritten program and its
+    /// evaluator, torn down on the next demand query, solve, or deinit.
+    demand_program: ?ast.Program = null,
+    demand_evaluator: ?evaluator_mod.Evaluator = null,
     diagnostic: Diagnostic = .{},
     /// Bounds the fixed-point rounds within each stratum;
     /// `error.MaxIterationsExceeded` when exceeded. Null means no limit.
@@ -82,6 +87,7 @@ pub const Database = struct {
     }
 
     pub fn deinit(self: *Database) void {
+        self.clearDemand();
         if (self.evaluator) |*evaluator| evaluator.deinit();
         self.program.deinit();
         self.interner.deinit();
@@ -101,6 +107,38 @@ pub const Database = struct {
         try b.factValues(pred, row);
     }
 
+    /// Removes one occurrence of a previously added ground fact and
+    /// invalidates computed results; the next solve or query recomputes
+    /// from scratch. Returns true if a matching fact was removed. Only
+    /// base facts can be retracted; derived tuples disappear when the
+    /// facts deriving them do.
+    pub fn retract(self: *Database, pred_name: []const u8, row: []const Value) FrontendError!bool {
+        const name_atom = self.interner.find(pred_name) orelse return error.UnknownPredicate;
+        const pred = self.program.findPredicate(name_atom) orelse return error.UnknownPredicate;
+        const info = self.program.preds.items[pred];
+        if (row.len != info.arity) return error.ArityMismatch;
+
+        // A value the interner has never seen cannot match any stored fact.
+        var encoded: [dyntuple.MAX_ARITY]u64 = undefined;
+        for (row, 0..) |value, i| {
+            encoded[i] = switch (value) {
+                .int => |v| try interner_mod.encodeInt(v),
+                .str => |s| self.interner.find(s) orelse return false,
+            };
+        }
+
+        for (self.program.facts.items, 0..) |fact, i| {
+            if (fact.pred != pred) continue;
+            if (!std.mem.eql(u64, fact.row, encoded[0..row.len])) continue;
+            _ = self.program.facts.swapRemove(i);
+            self.clearDemand();
+            if (self.evaluator) |*evaluator| evaluator.deinit();
+            self.evaluator = null;
+            return true;
+        }
+        return false;
+    }
+
     /// Parses Datalog source, appending its facts, rules, and queries to
     /// the program. On error, `lastDiagnostic` has the details.
     pub fn run(self: *Database, source: []const u8) FrontendError!void {
@@ -113,10 +151,27 @@ pub const Database = struct {
     /// recomputes from scratch.
     pub fn solve(self: *Database) FrontendError!void {
         self.diagnostic = .{};
+
+        // Any failure below leaves the database without results, so a later
+        // `query` or `explain` re-solves and reports the failure instead of
+        // serving partial or stale relations.
+        self.clearDemand();
+        if (self.evaluator) |*old| old.deinit();
+        self.evaluator = null;
+
         const analysis = try analyze_mod.analyze(&self.program, &self.diagnostic);
 
-        if (self.evaluator) |*old| old.deinit();
+        // Recursive arithmetic can derive fresh values forever; refuse to
+        // evaluate it without an explicit iteration bound.
+        if (analysis.recursive_assignment and self.max_iterations == null) {
+            return error.IterationLimitRequired;
+        }
+
         self.evaluator = evaluator_mod.Evaluator.init(self.allocator, &self.program);
+        errdefer {
+            self.evaluator.?.deinit();
+            self.evaluator = null;
+        }
         self.evaluator.?.track_provenance = self.track_provenance;
         try self.evaluator.?.solve(analysis.stratum_count, self.max_iterations);
     }
@@ -143,13 +198,84 @@ pub const Database = struct {
             };
         }
 
-        const relation = self.evaluator.?.relationOf(pred) orelse
-            return RowIterator.empty(&self.interner, info.arity);
+        return self.rowsOf(&self.evaluator.?, pred, encoded, info.arity);
+    }
+
+    /// Answers one query with a demand-driven (magic sets) evaluation:
+    /// only tuples the bound arguments can reach are computed, instead of
+    /// the whole program. Falls back to `query` (full evaluation) when the
+    /// rewrite does not apply: no bound argument, a non-derived predicate,
+    /// or negation or aggregation among the relevant rules. Results are
+    /// identical to `query` either way. The iterator borrows the database;
+    /// it is invalidated by the next query, solve, or deinit.
+    pub fn queryDemand(self: *Database, pred_name: []const u8, pattern: []const ?Value) FrontendError!RowIterator {
+        const name_atom = self.interner.find(pred_name) orelse return error.UnknownPredicate;
+        const pred = self.program.findPredicate(name_atom) orelse return error.UnknownPredicate;
+        const info = self.program.preds.items[pred];
+        if (pattern.len != info.arity) return error.ArityMismatch;
+
+        // Encode the pattern. A string constant the interner has never seen
+        // cannot match anything.
+        var encoded: [dyntuple.MAX_ARITY]?u64 = @splat(null);
+        for (pattern, 0..) |slot, i| {
+            const value = slot orelse continue;
+            encoded[i] = switch (value) {
+                .int => |v| try interner_mod.encodeInt(v),
+                .str => |s| self.interner.find(s) orelse return RowIterator.empty(&self.interner, info.arity),
+            };
+        }
+
+        // Analysis validates the source program and lowers wildcards, which
+        // the rewrite relies on.
+        self.diagnostic = .{};
+        const analysis = try analyze_mod.analyze(&self.program, &self.diagnostic);
+        if (analysis.recursive_assignment and self.max_iterations == null) {
+            return error.IterationLimitRequired;
+        }
+
+        self.clearDemand();
+        const demand = magic.transform(
+            self.allocator,
+            &self.program,
+            &self.interner,
+            pred,
+            encoded[0..info.arity],
+        ) catch |err| switch (err) {
+            error.DemandUnsupported => return self.query(pred_name, pattern),
+            else => |other| return other,
+        };
+
+        self.demand_program = demand.program;
+        errdefer self.clearDemand();
+        const demand_analysis = try analyze_mod.analyze(&self.demand_program.?, null);
+        self.demand_evaluator = evaluator_mod.Evaluator.init(self.allocator, &self.demand_program.?);
+        try self.demand_evaluator.?.solve(demand_analysis.stratum_count, self.max_iterations);
+
+        return self.rowsOf(&self.demand_evaluator.?, demand.query_pred, encoded, info.arity);
+    }
+
+    fn clearDemand(self: *Database) void {
+        if (self.demand_evaluator) |*demand_evaluator| demand_evaluator.deinit();
+        self.demand_evaluator = null;
+        if (self.demand_program) |*demand_program| demand_program.deinit();
+        self.demand_program = null;
+    }
+
+    /// Rows of `pred` in `evaluator` matching an encoded pattern.
+    fn rowsOf(
+        self: *Database,
+        evaluator: *const evaluator_mod.Evaluator,
+        pred: ast.PredId,
+        encoded: [dyntuple.MAX_ARITY]?u64,
+        arity: u16,
+    ) RowIterator {
+        const relation = evaluator.relationOf(pred) orelse
+            return RowIterator.empty(&self.interner, arity);
 
         // Gallop to the candidate range using the bound prefix columns.
         var prefix_len: usize = 0;
         var probe = dyntuple.zero_tuple;
-        while (prefix_len < info.arity) : (prefix_len += 1) {
+        while (prefix_len < arity) : (prefix_len += 1) {
             const bound = encoded[prefix_len] orelse break;
             dyntuple.set(&probe, prefix_len, bound);
         }
@@ -163,7 +289,7 @@ pub const Database = struct {
             .pattern = encoded,
             .prefix = probe,
             .prefix_len = prefix_len,
-            .arity = info.arity,
+            .arity = arity,
             .interner = &self.interner,
         };
     }
@@ -188,7 +314,8 @@ pub const Database = struct {
     /// Writes the proof tree showing how a derived tuple was obtained:
     /// the rule deriving it and, recursively, the ground premises. Requires
     /// `track_provenance` set before the solve. `max_depth` bounds the
-    /// expanded rule levels; null means no bound.
+    /// expanded rule levels; null and values above
+    /// `explain.MAX_PROOF_DEPTH` fall back to that cap.
     pub fn explain(
         self: *Database,
         writer: *std.Io.Writer,
@@ -688,4 +815,35 @@ test "Database: max iterations setting" {
 
     db.max_iterations = null;
     try db.solve();
+}
+
+test "Database: queryDemand computes only the demanded slice" {
+    const allocator = std.testing.allocator;
+
+    var db = Database.init(allocator);
+    defer db.deinit();
+
+    // Two disconnected chains; the full closure holds 20 path tuples.
+    try db.run(
+        \\edge(1, 2). edge(2, 3). edge(3, 4). edge(4, 5).
+        \\edge(6, 7). edge(7, 8). edge(8, 9). edge(9, 10).
+        \\path(X, Y) :- edge(X, Y).
+        \\path(X, Z) :- path(X, Y), edge(Y, Z).
+    );
+
+    var it = try db.queryDemand("path", &.{ Value{ .int = 9 }, null });
+    defer it.deinit();
+    try std.testing.expect(it.next() != null);
+    try std.testing.expect(it.next() == null);
+
+    // Demand for path(9, _) reaches one path tuple and two magic bindings;
+    // everything else stays uncomputed.
+    var derived_tuples: usize = 0;
+    for (db.demand_program.?.preds.items, 0..) |info, pred| {
+        if (!info.derived) continue;
+        if (db.demand_evaluator.?.relationOf(@intCast(pred))) |relation| {
+            derived_tuples += relation.len();
+        }
+    }
+    try std.testing.expect(derived_tuples < 5);
 }

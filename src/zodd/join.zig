@@ -96,7 +96,11 @@ fn gallopKey(comptime Key: type, comptime Val: type, slice: []const struct { Key
         step = new_step;
     }
 
-    const end = @min(pos + step + 1, slice.len);
+    // Saturating arithmetic: `step` may be maxInt(usize) after the doubling
+    // loop saturated, in which case `pos + step + 1` would overflow.
+    const end_of_step = std.math.add(usize, pos, step) catch std.math.maxInt(usize);
+    const upper = std.math.add(usize, end_of_step, 1) catch std.math.maxInt(usize);
+    const end = @min(upper, slice.len);
     var lo = pos + 1;
     var hi = end;
 

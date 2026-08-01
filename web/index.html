@@ -135,8 +135,23 @@ path(X, Z) :- path(X, Y), edge(Y, Z).</code></pre>
                 <code>=</code>, and <code>!=</code>. Every variable in a comparison must be bound by a positive subgoal
                 in the rule body, and wildcards are not allowed. Ordered comparisons compare integers; a string operand
                 will fail the comparison.</p>
+            <p>Either side of a comparison may be an arithmetic expression over unsigned integers using <code>+</code>,
+                <code>-</code>, <code>*</code>, <code>/</code>, and parentheses. Arithmetic that does not produce a value
+                (a string operand, overflow, underflow, or division by zero) fails the comparison for that tuple.</p>
             <pre><code>hop(X, Y) :- edge(X, Y, W), W &lt; 60.
-reach(X, Z) :- reach(X, Y), hop(Y, Z), X != Z.</code></pre>
+reach(X, Z) :- reach(X, Y), hop(Y, Z), X != Z.
+cheap(X, Y) :- edge(X, Y, W), (W + 10) * 2 &lt; 140.</code></pre>
+        </section>
+
+        <section>
+            <h3>Assignments</h3>
+            <p><code>Var is expr</code> binds a fresh variable to the expression's value for each tuple. Every variable
+                on the right-hand side must already be bound, and the target must not be bound anywhere else in the
+                rule. An assignment whose expression produces no value derives nothing for that tuple. A recursive rule
+                that uses an assignment requires an iteration limit, because it can otherwise derive new values
+                forever.</p>
+            <pre><code>dist(1, 0).
+dist(Y, D2) :- dist(X, D), edge(X, Y), D2 is D + 1.</code></pre>
         </section>
 
         <section>

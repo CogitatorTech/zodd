@@ -31,9 +31,13 @@ This document lists the completed and planned features for Zodd.
 - [ ] Streaming input
 - [x] Rule DSL (textual Datalog frontend with a parser, a builder API, stratified negation, and aggregates)
 - [x] Comparison operators (`<`, `<=`, `>`, `>=`, `=`, and `!=` as body filters)
+- [x] Arithmetic in comparison filters (`+`, `-`, `*`, `/`, and parentheses on either side of a comparison)
+- [x] Arithmetic assignments (`D2 is D + 1` binds a fresh variable per tuple; recursive use requires an iteration limit)
 - [x] Query planner
 - [x] Explain (rule plan rendering and tuple provenance proof trees)
-- [ ] Magic sets
+- [x] Magic sets (demand-driven queries via `Database.queryDemand`, with a full-evaluation fallback for negation and aggregates)
+- [x] Fact retraction (`Database.retract` removes a base fact and recomputes on the next solve or query)
+- [x] Predicate arity up to 16 columns
 
 ### Development and Testing
 

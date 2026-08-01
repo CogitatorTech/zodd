@@ -411,7 +411,8 @@ pub fn extendInto(
     }
 
     if (results.items.len > 0) {
-        const rel = try Relation(Result).fromSlice(output.allocator, results.items);
+        var rel = try Relation(Result).fromSlice(output.allocator, results.items);
+        errdefer rel.deinit();
         try output.insert(rel);
     }
 }
@@ -485,7 +486,11 @@ fn gallopValHelper(comptime Key: type, comptime Val: type, slice: []const struct
         step = new_step;
     }
 
-    const end = @min(pos + step + 1, slice.len);
+    // Saturating arithmetic: `step` may be maxInt(usize) after the doubling
+    // loop saturated, in which case `pos + step + 1` would overflow.
+    const end_of_step = std.math.add(usize, pos, step) catch std.math.maxInt(usize);
+    const upper = std.math.add(usize, end_of_step, 1) catch std.math.maxInt(usize);
+    const end = @min(upper, slice.len);
     var lo = pos + 1;
     var hi = end;
 
@@ -646,6 +651,43 @@ test "extendInto: leapfrog join" {
     try std.testing.expectEqual(@as(usize, 2), output.recent.len());
     try std.testing.expectEqual(output.recent.elements[0][1], 20);
     try std.testing.expectEqual(output.recent.elements[1][1], 30);
+}
+
+test "extendInto: allocation failure does not leak the result relation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        fn run(allocator: Allocator) !void {
+            const Tuple = struct { u32 };
+            const Val = u32;
+
+            var source = Variable(Tuple).init(allocator);
+            defer source.deinit();
+            try source.insertSlice(&[_]Tuple{.{1}});
+            _ = try source.changed();
+
+            var base = try Relation(struct { u32, u32 }).fromSlice(allocator, &[_]struct { u32, u32 }{
+                .{ 1, 10 },
+                .{ 1, 20 },
+            });
+            defer base.deinit();
+
+            var output = Variable(struct { u32, u32 }).init(allocator);
+            defer output.deinit();
+
+            var ext = ExtendWith(Tuple, u32, Val).init(allocator, &base, struct {
+                fn f(t: *const Tuple) u32 {
+                    return t[0];
+                }
+            }.f);
+            var leapers = [_]Leaper(Tuple, Val){ext.leaper()};
+
+            try extendInto(Tuple, Val, struct { u32, u32 }, &source, &leapers, &output, struct {
+                fn logic(t: *const Tuple, v: *const Val) struct { u32, u32 } {
+                    return .{ t[0], v.* };
+                }
+            }.logic);
+            _ = try output.changed();
+        }
+    }.run, .{});
 }
 
 test "extendInto: only anti leapers is harmless" {

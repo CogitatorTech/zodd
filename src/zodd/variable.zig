@@ -76,7 +76,8 @@ pub fn Variable(comptime Tuple: type) type {
         /// Inserts a slice of tuples into the variable. The tuples are copied;
         /// the caller retains ownership of `tuples`.
         pub fn insertSlice(self: *Self, tuples: []const Tuple) Allocator.Error!void {
-            const rel = try Rel.fromSlice(self.allocator, tuples);
+            var rel = try Rel.fromSlice(self.allocator, tuples);
+            errdefer rel.deinit();
             try self.insert(rel);
         }
 

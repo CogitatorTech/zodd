@@ -18,7 +18,7 @@ const builtin = @import("builtin");
 const allocator = std.heap.wasm_allocator;
 
 /// Maximum predicate arity, mirroring the frontend's `MAX_ARITY`.
-const max_arity = 8;
+const max_arity = 16;
 
 /// Fixed-point rounds allowed per stratum before reporting an error.
 const iteration_limit = 100_000;

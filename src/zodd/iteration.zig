@@ -52,6 +52,7 @@ pub fn Iteration(comptime Tuple: type) type {
         /// Creates a new variable owned by this iteration.
         pub fn variable(self: *Self) Allocator.Error!*Var {
             const v = try self.allocator.create(Var);
+            errdefer self.allocator.destroy(v);
             v.* = Var.init(self.allocator);
             try self.variables.append(self.allocator, v);
             return v;
@@ -149,4 +150,15 @@ test "Iteration: reset without new data" {
 
     const changed3 = try iter.changed();
     try std.testing.expect(!changed3);
+}
+
+test "Iteration: variable creation failure does not leak" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        fn run(allocator: Allocator) !void {
+            var iter = Iteration(u32).init(allocator, null);
+            defer iter.deinit();
+            _ = try iter.variable();
+            _ = try iter.variable();
+        }
+    }.run, .{});
 }

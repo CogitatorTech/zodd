@@ -13,12 +13,12 @@ const zodd = @import("zodd");
 //
 // Uses ExtendWith (leapfrog trie join) for taint propagation and
 // FilterAnti for sanitizer filtering.
- 
+
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
- 
+
     std.debug.print("Zodd Datalog Engine - Taint Analysis\n", .{});
     std.debug.print("=============================================\n\n", .{});
 
