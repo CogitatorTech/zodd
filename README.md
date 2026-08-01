@@ -194,7 +194,6 @@ Zodd is licensed under the MIT License (see [LICENSE](LICENSE)).
 ### Acknowledgements
 
 * The logo shows a directed graph whose edges form a Z, with a dashed arc for the derived fact `path(a, d)`.
-* This project uses [Minish](https://github.com/CogitatorTech/minish) for property-based testing and
-  [Ordered](https://github.com/CogitatorTech/ordered) for B-tree indices.
+* This project uses [Minish](https://github.com/CogitatorTech/minish) for property-based testing, [Chilli](https://github.com/CogitatorTech/chilli) for CLI, and [Ordered](https://github.com/CogitatorTech/ordered) for B-tree indices.
 * Zodd is inspired by and modeled after the [Datafrog](https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md) Datalog engine for Rust.
 
