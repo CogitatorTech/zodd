@@ -14,24 +14,33 @@
 //! query     = "?-" atom "."
 //! head      = atom with at most one aggregate argument `func(Var)`
 //! body      = body_item { "," body_item }
-//! body_item = literal | comparison
+//! body_item = literal | comparison | assignment
 //! literal   = [ "not" ] atom
-//! comparison = term cmp_op term
+//! comparison = expr cmp_op expr
+//! assignment = Variable "is" expr
 //! cmp_op    = "<" | "<=" | ">" | ">=" | "=" | "!="
+//! expr      = mul_expr { ("+" | "-") mul_expr }
+//! mul_expr  = primary { ("*" | "/") primary }
+//! primary   = term | "(" expr ")"
 //! atom      = pred_name "(" [ term { "," term } ] ")"
 //! term      = Variable | "_" | integer | string
 //! ```
 //!
 //! Constants are integers or quoted strings; bare lowercase identifiers are
-//! not constants. `not`, `count`, `sum`, `min`, and `max` are reserved.
-//! Comparisons are filters: every comparison variable must also occur in a
-//! positive body literal, and wildcards are not allowed. Ordered operators
-//! compare integers; a string operand fails the comparison.
+//! not constants. `not`, `count`, `sum`, `min`, `max`, and `is` are
+//! reserved. Comparisons are filters: every comparison variable must also
+//! occur in a positive body literal, and wildcards are not allowed. Ordered
+//! operators compare integers; a string operand fails the comparison.
+//! Assignments bind their target variable to the expression's value per
+//! tuple. Arithmetic is unsigned: a string operand, overflow, underflow, or
+//! division by zero fails the comparison, or derives nothing for an
+//! assignment, for that tuple.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ast = @import("ast.zig");
 const builder_mod = @import("builder.zig");
+const dyntuple = @import("dyntuple.zig");
 const interner_mod = @import("interner.zig");
 const token_mod = @import("token.zig");
 const Diagnostic = @import("analyze.zig").Diagnostic;
@@ -49,7 +58,7 @@ pub const ParseError = token_mod.LexError || builder_mod.BuildError || error{
     MultipleAggregates,
 };
 
-const reserved_words = [_][]const u8{ "not", "count", "sum", "min", "max" };
+const reserved_words = [_][]const u8{ "not", "count", "sum", "min", "max", "is" };
 
 /// Parses Datalog source, appending facts, rules, and queries to `program`.
 /// On error, fills `diagnostic` (when provided) with a message and source
@@ -164,6 +173,11 @@ const Parser = struct {
         while (true) {
             const arg = try self.parseArg(allow_aggregate, @intCast(args.items.len));
             try args.append(self.arena(), arg);
+            // Reject over-long argument lists here, before the slot counter
+            // can grow past its u16 range on adversarial input.
+            if (args.items.len > dyntuple.MAX_ARITY) {
+                return self.fail(error.ArityTooLarge, self.current.span, "too many arguments");
+            }
             if (self.current.kind == .comma) {
                 try self.advance();
                 continue;
@@ -220,6 +234,7 @@ const Parser = struct {
                 }
                 return self.fail(error.UnexpectedToken, token.span, "bare identifiers are not constants; use an integer or a quoted string");
             },
+            .minus => return self.fail(error.NegativeInteger, token.span, "negative integers are not supported"),
             else => return self.fail(error.UnexpectedToken, token.span, "expected a term"),
         }
     }
@@ -285,7 +300,7 @@ const Parser = struct {
         // Body items: a term opens a comparison, anything else a literal.
         while (true) {
             switch (self.current.kind) {
-                .ident_upper, .wildcard, .integer, .string => try self.comparison(&r),
+                .ident_upper, .wildcard, .integer, .string, .lparen => try self.comparison(&r),
                 else => try self.bodyLiteral(&r),
             }
 
@@ -326,7 +341,24 @@ const Parser = struct {
 
     fn comparison(self: *Parser, r: *builder_mod.RuleBuilder) ParseError!void {
         const lhs_span = self.current.span;
-        const lhs = try self.toTerm(r, try self.parseArg(false, 0));
+        const lhs = try self.parseCmpExpr(r, 0);
+
+        // `Var is expr` is an assignment, not a comparison.
+        if (self.current.kind == .ident_lower and std.mem.eql(u8, self.lexer.text(self.current), "is")) {
+            try self.advance();
+            const rhs = try self.parseCmpExpr(r, 0);
+            const target: ast.Term = switch (lhs) {
+                .term => |term| term,
+                .binop => return self.fail(error.InvalidAssignment, lhs_span, "assignment target must be a variable"),
+            };
+            r.assign(target, rhs) catch |err| switch (err) {
+                error.InvalidAssignment => return self.fail(err, lhs_span, "assignment target must be a variable"),
+                error.InvalidComparison => return self.fail(err, lhs_span, "wildcards are not allowed in assignments"),
+                error.ExpressionTooLarge => return self.fail(err, lhs_span, "assignment expression has too many terms"),
+                else => return err,
+            };
+            return;
+        }
 
         const op: ast.CmpOp = switch (self.current.kind) {
             .less_than => .lt,
@@ -340,16 +372,72 @@ const Parser = struct {
         try self.advance();
 
         const rhs_span = self.current.span;
-        const rhs = try self.toTerm(r, try self.parseArg(false, 0));
+        const rhs = try self.parseCmpExpr(r, 0);
 
-        r.cmp(lhs, op, rhs) catch |err| switch (err) {
+        r.cmpExpr(lhs, op, rhs) catch |err| switch (err) {
             error.InvalidComparison => return self.fail(
                 err,
                 .{ .start = lhs_span.start, .end = rhs_span.end },
                 "wildcards are not allowed in comparisons",
             ),
+            error.ExpressionTooLarge => return self.fail(
+                err,
+                .{ .start = lhs_span.start, .end = rhs_span.end },
+                "comparison expression has too many terms",
+            ),
             else => return err,
         };
+    }
+
+    /// Maximum parenthesis nesting inside a comparison expression, so
+    /// hostile input cannot exhaust the parser's native stack.
+    const MAX_EXPR_PAREN_DEPTH = 32;
+
+    /// Parses `mul_expr { ("+" | "-") mul_expr }`.
+    fn parseCmpExpr(self: *Parser, r: *builder_mod.RuleBuilder, depth: u32) ParseError!ast.Expr {
+        var lhs = try self.parseMulExpr(r, depth);
+        while (true) {
+            const op: ast.ArithOp = switch (self.current.kind) {
+                .plus => .add,
+                .minus => .sub,
+                else => return lhs,
+            };
+            try self.advance();
+            const rhs = try self.parseMulExpr(r, depth);
+            lhs = try r.binExpr(op, lhs, rhs);
+        }
+    }
+
+    /// Parses `primary_expr { ("*" | "/") primary_expr }`.
+    fn parseMulExpr(self: *Parser, r: *builder_mod.RuleBuilder, depth: u32) ParseError!ast.Expr {
+        var lhs = try self.parsePrimaryExpr(r, depth);
+        while (true) {
+            const op: ast.ArithOp = switch (self.current.kind) {
+                .star => .mul,
+                .slash => .div,
+                else => return lhs,
+            };
+            try self.advance();
+            const rhs = try self.parsePrimaryExpr(r, depth);
+            lhs = try r.binExpr(op, lhs, rhs);
+        }
+    }
+
+    /// Parses a term or a parenthesized expression.
+    fn parsePrimaryExpr(self: *Parser, r: *builder_mod.RuleBuilder, depth: u32) ParseError!ast.Expr {
+        if (self.current.kind == .lparen) {
+            if (depth >= MAX_EXPR_PAREN_DEPTH) {
+                return self.fail(error.ExpressionTooLarge, self.current.span, "expression is nested too deeply");
+            }
+            try self.advance();
+            const inner = try self.parseCmpExpr(r, depth + 1);
+            _ = try self.expect(.rparen, "expected ')'");
+            return inner;
+        }
+        if (self.current.kind == .minus) {
+            return self.fail(error.NegativeInteger, self.current.span, "negative integers are not supported");
+        }
+        return ast.Expr{ .term = try self.toTerm(r, try self.parseArg(false, 0)) };
     }
 
     fn query(self: *Parser) ParseError!void {
@@ -468,7 +556,7 @@ test "parse: comparisons" {
 
     try std.testing.expectEqual(@as(usize, 1), rules[0].compares.len);
     try std.testing.expectEqual(ast.CmpOp.ge, rules[0].compares[0].op);
-    try std.testing.expectEqual(@as(u64, 18), rules[0].compares[0].rhs.constant);
+    try std.testing.expectEqual(@as(u64, 18), rules[0].compares[0].rhs.term.constant);
 
     try std.testing.expectEqual(@as(usize, 2), rules[1].compares.len);
     try std.testing.expectEqual(ast.CmpOp.ne, rules[1].compares[0].op);
@@ -476,7 +564,7 @@ test "parse: comparisons" {
     // Comparison variables share ids with the literal occurrences.
     try std.testing.expectEqual(
         rules[1].body[0].atom.terms[0].variable,
-        rules[1].compares[0].lhs.variable,
+        rules[1].compares[0].lhs.term.variable,
     );
 }
 

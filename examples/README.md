@@ -12,6 +12,7 @@
 | 6 | [e6_dependency_resolution.zig](e6_dependency_resolution.zig) | Package dependency resolution with size aggregation and indexes.         |
 | 7 | [e7_datalog_frontend.zig](e7_datalog_frontend.zig)           | Datalog parser, evaluator, and query frontend.                           |
 | 8 | [e8_comparison_filters.zig](e8_comparison_filters.zig)       | Comparison filters to monitor latencies against SLA limits.              |
+| 9 | [e9_arithmetic_hops.zig](e9_arithmetic_hops.zig)             | Arithmetic assignments counting network hops under an iteration limit.   |
 
 #### Running Examples
 
@@ -32,4 +33,5 @@ zig build run-e5_taint_analysis
 zig build run-e6_dependency_resolution
 zig build run-e7_datalog_frontend
 zig build run-e8_comparison_filters
+zig build run-e9_arithmetic_hops
 ```

@@ -10,12 +10,12 @@ const zodd = @import("zodd");
 //   has_role(U, R2)  :- has_role(U, R1), role_hier(R1, R2).
 //   can_access(U, P) :- has_role(U, R), role_perm(R, P).
 //   effective(U, P)  :- can_access(U, P), NOT denied(U, P).
- 
+
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
- 
+
     std.debug.print("Zodd Datalog Engine - RBAC Authorization\n", .{});
     std.debug.print("=================================================\n\n", .{});
 

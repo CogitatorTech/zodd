@@ -36,6 +36,9 @@ pub const BuildError = ast.ConstructError || interner_mod.EncodeError || error{
     InvalidComparison,
     MissingHead,
     EmptyBody,
+    TooManyVariables,
+    ExpressionTooLarge,
+    InvalidAssignment,
 } || Allocator.Error;
 
 pub const Builder = struct {
@@ -105,6 +108,7 @@ pub const RuleBuilder = struct {
     head_spec: ?ast.Head = null,
     body: std.ArrayListUnmanaged(ast.Literal) = .empty,
     compares: std.ArrayListUnmanaged(ast.Compare) = .empty,
+    assigns: std.ArrayListUnmanaged(ast.Assign) = .empty,
     var_names: std.ArrayListUnmanaged([]const u8) = .empty,
     span: ast.Span = .{},
 
@@ -119,6 +123,9 @@ pub const RuleBuilder = struct {
             if (std.mem.eql(u8, existing, name)) {
                 return ast.Term{ .variable = @intCast(id) };
             }
+        }
+        if (self.var_names.items.len >= std.math.maxInt(ast.VarId)) {
+            return error.TooManyVariables;
         }
         const id: ast.VarId = @intCast(self.var_names.items.len);
         const copy = try self.arena().dupe(u8, name);
@@ -173,8 +180,56 @@ pub const RuleBuilder = struct {
     /// variables or constants; comparisons bind no variables, so every
     /// variable must also occur in a positive body literal.
     pub fn cmp(self: *RuleBuilder, lhs: ast.Term, op: ast.CmpOp, rhs: ast.Term) BuildError!void {
-        if (lhs == .wildcard or rhs == .wildcard) return error.InvalidComparison;
+        try self.cmpExpr(.{ .term = lhs }, op, .{ .term = rhs });
+    }
+
+    /// Appends a body comparison over arithmetic expressions, like
+    /// `W * 2 < 100`. The same variable-binding rules as `cmp` apply to
+    /// every term of both expressions.
+    pub fn cmpExpr(self: *RuleBuilder, lhs: ast.Expr, op: ast.CmpOp, rhs: ast.Expr) BuildError!void {
+        try self.checkExpr(lhs);
+        try self.checkExpr(rhs);
         try self.compares.append(self.arena(), .{ .op = op, .lhs = lhs, .rhs = rhs });
+    }
+
+    /// Appends a body assignment, like `assign(d2, expr)`: the target
+    /// variable takes the expression's value per tuple. The target must be
+    /// a variable that is not bound anywhere else in the rule; safety
+    /// analysis enforces that and the binding of the expression's
+    /// variables.
+    pub fn assign(self: *RuleBuilder, target: ast.Term, expr: ast.Expr) BuildError!void {
+        if (target != .variable) return error.InvalidAssignment;
+        try self.checkExpr(expr);
+        try self.assigns.append(self.arena(), .{ .target = target.variable, .expr = expr });
+    }
+
+    /// Builds an arithmetic expression node in the program arena.
+    pub fn binExpr(self: *RuleBuilder, op: ast.ArithOp, lhs: ast.Expr, rhs: ast.Expr) BuildError!ast.Expr {
+        const node = try self.arena().create(ast.BinExpr);
+        node.* = .{ .op = op, .lhs = lhs, .rhs = rhs };
+        return ast.Expr{ .binop = node };
+    }
+
+    /// Rejects wildcards anywhere in the expression and expressions past
+    /// `ast.MAX_EXPR_NODES` nodes. The explicit work stack keeps the walk
+    /// safe for arbitrarily deep caller-built expressions.
+    fn checkExpr(self: *RuleBuilder, expr: ast.Expr) BuildError!void {
+        var stack: std.ArrayListUnmanaged(ast.Expr) = .empty;
+        defer stack.deinit(self.arena());
+        try stack.append(self.arena(), expr);
+
+        var nodes: usize = 0;
+        while (stack.pop()) |e| {
+            nodes += 1;
+            if (nodes > ast.MAX_EXPR_NODES) return error.ExpressionTooLarge;
+            switch (e) {
+                .term => |term| if (term == .wildcard) return error.InvalidComparison,
+                .binop => |binop| {
+                    try stack.append(self.arena(), binop.lhs);
+                    try stack.append(self.arena(), binop.rhs);
+                },
+            }
+        }
     }
 
     fn literal(self: *RuleBuilder, pred: ast.PredId, terms: []const ast.Term, negated: bool) BuildError!void {
@@ -199,6 +254,7 @@ pub const RuleBuilder = struct {
             .head = head_spec,
             .body = self.body.items,
             .compares = self.compares.items,
+            .assigns = self.assigns.items,
             .var_count = @intCast(self.var_names.items.len),
             .var_names = self.var_names.items,
             .index = @intCast(program.rules.items.len),
@@ -315,8 +371,8 @@ test "Builder: comparisons" {
     const compares = program.rules.items[0].compares;
     try std.testing.expectEqual(@as(usize, 1), compares.len);
     try std.testing.expectEqual(ast.CmpOp.ge, compares[0].op);
-    try std.testing.expectEqual(age.variable, compares[0].lhs.variable);
-    try std.testing.expectEqual(@as(u64, 18), compares[0].rhs.constant);
+    try std.testing.expectEqual(age.variable, compares[0].lhs.term.variable);
+    try std.testing.expectEqual(@as(u64, 18), compares[0].rhs.term.constant);
 }
 
 test "Builder: aggregate head validation" {
@@ -367,4 +423,24 @@ test "Builder: string facts go through the interner" {
     try std.testing.expectEqualStrings("a", interner.resolve(row0[0]).str);
     const row1 = program.facts.items[1].row;
     try std.testing.expectEqual(interner_mod.Value{ .int = 7 }, interner.resolve(row1[1]));
+}
+
+test "RuleBuilder: too many variables is an error, not a trap" {
+    const allocator = std.testing.allocator;
+
+    var program = ast.Program.init(allocator);
+    defer program.deinit();
+    var interner = Interner.init(allocator);
+    defer interner.deinit();
+    var builder = Builder{ .program = &program, .interner = &interner };
+
+    const p = try builder.predicate("p", 1);
+    var r = builder.rule(p);
+
+    // Pre-fill to the VarId limit; the next fresh name must be refused
+    // instead of trapping on the id cast.
+    for (0..std.math.maxInt(ast.VarId) + 1) |_| {
+        try r.var_names.append(r.arena(), "x");
+    }
+    try std.testing.expectError(error.TooManyVariables, r.v("fresh"));
 }

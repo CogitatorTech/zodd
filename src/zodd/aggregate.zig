@@ -37,7 +37,14 @@ pub fn aggregate(
 
     const sortContext = struct {
         pub fn lessThan(_: void, a: Intermediate, b: Intermediate) bool {
-            return std.math.order(a[0], b[0]) == .lt;
+            return switch (std.math.order(a[0], b[0])) {
+                .lt => true,
+                .gt => false,
+                // Tuples within a group keep their input order (the pointers
+                // index the sorted input), so order-sensitive folders are
+                // deterministic despite the unstable sort.
+                .eq => @intFromPtr(a[1]) < @intFromPtr(b[1]),
+            };
         }
     };
     std.sort.pdq(Intermediate, intermediates, {}, sortContext.lessThan);
@@ -183,6 +190,40 @@ test "aggregate: max per key" {
     try std.testing.expectEqual(@as(usize, 2), result.len());
     try std.testing.expectEqual(@as(u32, 30), result.elements[0].@"1");
     try std.testing.expectEqual(@as(u32, 500), result.elements[1].@"1");
+}
+
+test "aggregate: fold order within a group follows the input order" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32, u32 };
+
+    // Group on the second column so groups interleave in the sorted input
+    // and the group sort has real work to do; an order-sensitive folder
+    // then exposes any within-group reordering. For group key j, the first
+    // tuple in input order is (j, j).
+    var tuples: [1000]Tuple = undefined;
+    for (&tuples, 0..) |*t, i| {
+        t.* = .{ @intCast(i), @intCast(i % 10) };
+    }
+    var data = try Relation(Tuple).fromSlice(allocator, &tuples);
+    defer data.deinit();
+
+    const sentinel = std.math.maxInt(u32);
+    var result = try aggregate(Tuple, u32, u32, allocator, &data, struct {
+        fn key(t: *const Tuple) u32 {
+            return t[1];
+        }
+    }.key, sentinel, struct {
+        fn fold(acc: u32, t: *const Tuple) u32 {
+            // First value per group: order-sensitive on purpose.
+            return if (acc == sentinel) t[0] else acc;
+        }
+    }.fold);
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 10), result.len());
+    for (result.elements, 0..) |row, j| {
+        try std.testing.expectEqual(@as(u32, @intCast(j)), row.@"1");
+    }
 }
 
 test "aggregate: empty input produces empty relation" {

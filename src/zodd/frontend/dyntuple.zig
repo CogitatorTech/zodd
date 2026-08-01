@@ -20,7 +20,7 @@ pub const Atom = u64;
 
 /// Maximum predicate arity supported by the frontend. Each stored tuple
 /// occupies `MAX_ARITY * 8` bytes regardless of the predicate's actual arity.
-pub const MAX_ARITY = 8;
+pub const MAX_ARITY = 16;
 
 /// The single tuple type used by all frontend relations: a tuple struct of
 /// `MAX_ARITY` `u64` fields. Columns at or past a predicate's arity are

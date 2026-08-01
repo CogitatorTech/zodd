@@ -199,9 +199,24 @@ pub fn Relation(comptime Tuple: type) type {
             const field_info = @typeInfo(T);
             if (field_info == .pointer) {
                 return std.math.order(@intFromPtr(a), @intFromPtr(b));
+            } else if (field_info == .@"enum") {
+                return std.math.order(@intFromEnum(a), @intFromEnum(b));
+            } else if (field_info == .float) {
+                // IEEE 754 total order via the bit-pattern trick, since
+                // std.math.order is unreachable for NaN operands. NaN sorts
+                // after +inf (or before -inf when negative), and -0.0 sorts
+                // before +0.0 as a distinct value.
+                return std.math.order(floatSortKey(T, a), floatSortKey(T, b));
             } else {
                 return std.math.order(a, b);
             }
+        }
+
+        fn floatSortKey(comptime T: type, x: T) std.meta.Int(.unsigned, @bitSizeOf(T)) {
+            const U = std.meta.Int(.unsigned, @bitSizeOf(T));
+            const sign_bit = @as(U, 1) << (@bitSizeOf(T) - 1);
+            const bits: U = @bitCast(x);
+            return if (bits & sign_bit != 0) ~bits else bits | sign_bit;
         }
 
         /// Compares two tuples.
@@ -216,12 +231,7 @@ pub fn Relation(comptime Tuple: type) type {
                 }
                 return .eq;
             } else {
-                const tuple_info = @typeInfo(Tuple);
-                if (tuple_info == .pointer) {
-                    return std.math.order(@intFromPtr(a), @intFromPtr(b));
-                } else {
-                    return std.math.order(a, b);
-                }
+                return orderField(Tuple, a, b);
             }
         }
 
@@ -297,7 +307,7 @@ pub fn Relation(comptime Tuple: type) type {
                     const info = @typeInfo(T).@"enum";
                     const Tag = info.tag_type;
                     const bits = try reader.takeInt(Tag, .little);
-                    break :blk @as(T, @enumFromInt(bits));
+                    break :blk std.enums.fromInt(T, bits) orelse return error.InvalidFormat;
                 },
                 .array => |info| blk: {
                     var result: T = undefined;
@@ -659,6 +669,51 @@ test "Relation: save/load round-trip for floats" {
     defer loaded.deinit();
 
     try std.testing.expectEqualSlices(Tuple, original.elements, loaded.elements);
+}
+
+test "Relation: load rejects an invalid enum tag" {
+    const allocator = std.testing.allocator;
+    const Color = enum(u8) { red, green };
+    const Tuple = struct { u32, Color };
+
+    var original = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{
+        .{ 1, .red },
+        .{ 2, .green },
+    });
+    defer original.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try original.save(&aw.writer);
+
+    // Corrupt the first tuple's enum tag: 16 header bytes (magic, version,
+    // length), then the tuple's u32 field.
+    const bytes = aw.writer.buffered();
+    bytes[16 + 4] = 0xff;
+
+    var reader = std.Io.Reader.fixed(bytes);
+    try std.testing.expectError(error.InvalidFormat, Relation(Tuple).load(allocator, &reader));
+}
+
+test "Relation: NaN float fields sort and deduplicate without panicking" {
+    const allocator = std.testing.allocator;
+    const Tuple = struct { u32, f64 };
+    const nan = std.math.nan(f64);
+
+    var rel = try Relation(Tuple).fromSlice(allocator, &[_]Tuple{
+        .{ 2, 1.0 },
+        .{ 1, nan },
+        .{ 1, nan },
+        .{ 1, 0.5 },
+    });
+    defer rel.deinit();
+
+    // NaN compares consistently under the total order: the two NaN tuples
+    // deduplicate, and sorting places NaN after every finite value.
+    try std.testing.expectEqual(@as(usize, 3), rel.len());
+    try std.testing.expectEqual(@as(f64, 0.5), rel.elements[0][1]);
+    try std.testing.expect(std.math.isNan(rel.elements[1][1]));
+    try std.testing.expectEqual(@as(f64, 1.0), rel.elements[2][1]);
 }
 
 test "Relation: save/load round-trip for differently-sized ints" {

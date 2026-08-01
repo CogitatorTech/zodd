@@ -66,11 +66,19 @@ pub const AntiStep = struct {
     i_key_cols: []u8,
 };
 
-/// One side of a comparison filter: a column of the current layout or a
-/// constant.
+/// One side of a comparison filter: a column of the current layout, a
+/// constant, or arithmetic over both. Recursion depth is bounded by the
+/// builder's `ast.MAX_EXPR_NODES` cap.
 pub const CmpArg = union(enum) {
     col: u8,
     constant: dyntuple.Atom,
+    binop: *const CmpBin,
+};
+
+pub const CmpBin = struct {
+    op: ast.ArithOp,
+    lhs: CmpArg,
+    rhs: CmpArg,
 };
 
 /// Filters the intermediate with a comparison. Equality and inequality
@@ -82,11 +90,19 @@ pub const CmpStep = struct {
     rhs: CmpArg,
 };
 
+/// Computes an expression per tuple into a fresh layout column. A tuple
+/// whose expression produces no value is dropped.
+pub const AssignStep = struct {
+    dest: u8,
+    expr: CmpArg,
+};
+
 pub const Step = union(enum) {
     scan: AtomLoad,
     join: JoinStep,
     anti: AntiStep,
     cmp: CmpStep,
+    assign: AssignStep,
 };
 
 /// One head column: a column of the final intermediate (or of the aggregate
@@ -97,12 +113,17 @@ pub const HeadCol = union(enum) {
 };
 
 /// Aggregation over the final intermediate: project `proj` (group variables,
-/// then the aggregated column, then all remaining columns for set-semantics
-/// folding), group by the first `group_len` columns, then assemble the head
-/// from the `[group..., result]` tuples.
+/// then the aggregated column unless it is itself a group variable, then all
+/// remaining columns for set-semantics folding), group by the first
+/// `group_len` columns, fold `val_col`, then assemble the head from the
+/// `[group..., result]` tuples.
 pub const AggPlan = struct {
     proj: []u8,
     group_len: u8,
+    /// Projected column holding the aggregated value; `group_len` unless the
+    /// aggregated variable is a group variable, in which case it points into
+    /// the group prefix.
+    val_col: u8,
     func: ast.AggFunc,
     head_cols: []HeadCol,
 };
@@ -114,7 +135,8 @@ pub const HeadKind = union(enum) {
 
 /// A compiled rule.
 pub const Plan = struct {
-    /// Scan and join steps in body order, then cmp steps, then anti steps.
+    /// Scan and join steps in body order, then assign steps, then cmp
+    /// steps, then anti steps.
     steps: []Step,
     head: HeadKind,
     /// Final intermediate width (number of layout columns).
@@ -149,14 +171,27 @@ pub fn compile(arena: Allocator, rule: *const ast.Rule) PlanError!Plan {
         }
     }
 
-    // Comparison filters after all positives; safety guarantees their
-    // variables are bound by then. None of the remaining steps change the
-    // layout, so the columns stay valid.
+    // Assignments after all positives, in order: each appends its target as
+    // a fresh layout column, so later assignments, comparisons, negations,
+    // and the head can reference it. `var_count` counts assigned variables,
+    // so the MAX_ARITY check above already bounds the widened layout.
+    for (rule.assigns) |assign| {
+        const dest: u8 = @intCast(layout.items.len);
+        try layout.append(arena, assign.target);
+        try steps.append(arena, .{ .assign = .{
+            .dest = dest,
+            .expr = try cmpArg(arena, assign.expr, layout.items),
+        } });
+    }
+
+    // Comparison filters after the positives and assignments; safety
+    // guarantees their variables are bound by then. None of the remaining
+    // steps change the layout, so the columns stay valid.
     for (rule.compares) |compare| {
         try steps.append(arena, .{ .cmp = .{
             .op = compare.op,
-            .lhs = cmpArg(compare.lhs, layout.items),
-            .rhs = cmpArg(compare.rhs, layout.items),
+            .lhs = try cmpArg(arena, compare.lhs, layout.items),
+            .rhs = try cmpArg(arena, compare.rhs, layout.items),
         } });
     }
 
@@ -241,11 +276,22 @@ fn buildLoad(
     };
 }
 
-fn cmpArg(term: ast.Term, layout: []const ast.VarId) CmpArg {
-    return switch (term) {
-        .variable => |var_id| CmpArg{ .col = colOf(layout, var_id) },
-        .constant => |value| CmpArg{ .constant = value },
-        .wildcard => unreachable, // Rejected by the builder.
+fn cmpArg(arena: Allocator, expr: ast.Expr, layout: []const ast.VarId) PlanError!CmpArg {
+    return switch (expr) {
+        .term => |term| switch (term) {
+            .variable => |var_id| CmpArg{ .col = colOf(layout, var_id) },
+            .constant => |value| CmpArg{ .constant = value },
+            .wildcard => unreachable, // Rejected by the builder.
+        },
+        .binop => |binop| blk: {
+            const node = try arena.create(CmpBin);
+            node.* = .{
+                .op = binop.op,
+                .lhs = try cmpArg(arena, binop.lhs, layout),
+                .rhs = try cmpArg(arena, binop.rhs, layout),
+            };
+            break :blk CmpArg{ .binop = node };
+        },
     };
 }
 
@@ -332,11 +378,19 @@ fn buildHead(
 
             // Projection: group variables, the aggregated column, then every
             // remaining layout column so folding sees distinct full bindings.
+            // When the aggregated variable is itself a group variable, its
+            // value is already in the group prefix; appending it again would
+            // grow the projection past MAX_ARITY.
             var proj: std.ArrayListUnmanaged(u8) = .empty;
             for (group_vars.items) |var_id| {
                 try proj.append(arena, colOf(layout, var_id));
             }
-            try proj.append(arena, colOf(layout, arg_var));
+            const val_col: u8 = if (indexOfVar(group_vars.items, arg_var)) |group_col|
+                @intCast(group_col)
+            else blk: {
+                try proj.append(arena, colOf(layout, arg_var));
+                break :blk group_len;
+            };
             for (layout, 0..) |var_id, col| {
                 if (var_id != arg_var and indexOfVar(group_vars.items, var_id) == null) {
                     try proj.append(arena, @intCast(col));
@@ -366,6 +420,7 @@ fn buildHead(
             return HeadKind{ .aggregate = .{
                 .proj = proj.items,
                 .group_len = group_len,
+                .val_col = val_col,
                 .func = agg.func,
                 .head_cols = head_cols,
             } };

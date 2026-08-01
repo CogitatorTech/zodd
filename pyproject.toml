@@ -5,6 +5,7 @@ description = "The Python environment for the Zodd project"
 
 requires-python = ">=3.10,<4.0"
 dependencies = [
-    "pre-commit (>=4.2.0,<5.0.0)",
-    "icecream (>=2.1.4,<3.0.0)",
+    "pre-commit >=4.2.0",
+    "icecream >=2.1.4",
+    "clingo>=5.7",
 ]

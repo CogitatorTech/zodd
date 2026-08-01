@@ -12,12 +12,12 @@ const zodd = @import("zodd");
 //   contains_pii(D2) :- contains_pii(D1), transform(D1, D2),
 //                        NOT anonymizes(D1, D2).
 //   violation(D)     :- contains_pii(D), public_dataset(D).
- 
+
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
- 
+
     std.debug.print("Zodd Datalog Engine - Data Lineage Tracking\n", .{});
     std.debug.print("=================================================\n\n", .{});
 

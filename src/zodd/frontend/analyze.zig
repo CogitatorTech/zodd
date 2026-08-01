@@ -25,8 +25,13 @@ pub const AnalyzeError = error{
     UnsafeHeadVariable,
     UnsafeNegatedVariable,
     UnsafeComparisonVariable,
+    UnsafeAssignmentVariable,
     UnsafeAggregate,
+    InvalidAssignment,
     NegationCycle,
+    TooManyVariables,
+    TooManyStrata,
+    IterationLimitRequired,
 } || Allocator.Error;
 
 /// Where an analysis error occurred. The message is owned by the program's
@@ -41,6 +46,10 @@ pub const Diagnostic = struct {
 pub const Analysis = struct {
     /// Number of strata; predicate strata are stored in `PredInfo.stratum`.
     stratum_count: u16,
+    /// True when a recursive rule carries an assignment. Such programs can
+    /// derive unboundedly many values, so evaluating them requires an
+    /// explicit iteration limit.
+    recursive_assignment: bool = false,
 };
 
 /// A dependency edge from a rule head to a body predicate.
@@ -56,7 +65,7 @@ pub fn analyze(
     program: *ast.Program,
     diagnostic: ?*Diagnostic,
 ) AnalyzeError!Analysis {
-    lowerWildcards(program);
+    try lowerWildcards(program);
 
     for (program.preds.items) |*info| {
         info.derived = false;
@@ -74,21 +83,22 @@ pub fn analyze(
 }
 
 /// Replaces every wildcard term with a fresh rule-scoped variable.
-fn lowerWildcards(program: *ast.Program) void {
+fn lowerWildcards(program: *ast.Program) AnalyzeError!void {
     for (program.rules.items) |*rule| {
         switch (rule.head) {
-            .plain => |atom| lowerTerms(atom.terms, &rule.var_count),
-            .aggregate => |agg| lowerTerms(agg.group_terms, &rule.var_count),
+            .plain => |atom| try lowerTerms(atom.terms, &rule.var_count),
+            .aggregate => |agg| try lowerTerms(agg.group_terms, &rule.var_count),
         }
         for (rule.body) |literal| {
-            lowerTerms(literal.atom.terms, &rule.var_count);
+            try lowerTerms(literal.atom.terms, &rule.var_count);
         }
     }
 }
 
-fn lowerTerms(terms: []ast.Term, var_count: *u16) void {
+fn lowerTerms(terms: []ast.Term, var_count: *u16) AnalyzeError!void {
     for (terms) |*term| {
         if (term.* == .wildcard) {
+            if (var_count.* == std.math.maxInt(u16)) return error.TooManyVariables;
             term.* = ast.Term{ .variable = var_count.* };
             var_count.* += 1;
         }
@@ -111,6 +121,16 @@ fn checkSafety(
         for (literal.atom.terms) |term| {
             if (term == .variable) bound.set(term.variable);
         }
+    }
+
+    // Assignments extend the bound set in order, so later assignments,
+    // comparisons, negated literals, and the head may use their targets.
+    for (rule.assigns) |assign| {
+        try checkBoundExpr(program, rule, diagnostic, assign.expr, &bound, error.UnsafeAssignmentVariable, "assignment variable not bound by a positive body literal or an earlier assignment");
+        if (bound.isSet(assign.target)) {
+            return fail(program, diagnostic, rule, error.InvalidAssignment, "assignment target is already bound");
+        }
+        bound.set(assign.target);
     }
 
     switch (rule.head) {
@@ -143,11 +163,34 @@ fn checkSafety(
     }
 
     for (rule.compares) |compare| {
-        for ([_]ast.Term{ compare.lhs, compare.rhs }) |term| {
-            if (term == .variable and !bound.isSet(term.variable)) {
-                return fail(program, diagnostic, rule, error.UnsafeComparisonVariable, "comparison variable not bound by a positive body literal");
-            }
+        for ([_]ast.Expr{ compare.lhs, compare.rhs }) |expr| {
+            try checkBoundExpr(program, rule, diagnostic, expr, &bound, error.UnsafeComparisonVariable, "comparison variable not bound by a positive body literal");
         }
+    }
+}
+
+/// Checks every variable of an expression against the bound set, failing
+/// with the given error. Recursion depth is bounded by the builder's
+/// `ast.MAX_EXPR_NODES` cap.
+fn checkBoundExpr(
+    program: *ast.Program,
+    rule: *const ast.Rule,
+    diagnostic: ?*Diagnostic,
+    expr: ast.Expr,
+    bound: *const std.DynamicBitSetUnmanaged,
+    err: AnalyzeError,
+    message: []const u8,
+) AnalyzeError!void {
+    switch (expr) {
+        .term => |term| {
+            if (term == .variable and !bound.isSet(term.variable)) {
+                return fail(program, diagnostic, rule, err, message);
+            }
+        },
+        .binop => |binop| {
+            try checkBoundExpr(program, rule, diagnostic, binop.lhs, bound, err, message);
+            try checkBoundExpr(program, rule, diagnostic, binop.rhs, bound, err, message);
+        },
     }
 }
 
@@ -241,7 +284,11 @@ fn stratify(program: *ast.Program, diagnostic: ?*Diagnostic) AnalyzeError!Analys
                     }
                     continue;
                 }
-                const required: u16 = scc_stratum[target_scc] + @intFromBool(edge.negative);
+                // Checked in u32: a chain of negations one stratum deep per
+                // predicate can push past the u16 stratum range.
+                const required_wide = @as(u32, scc_stratum[target_scc]) + @intFromBool(edge.negative);
+                if (required_wide >= std.math.maxInt(u16)) return error.TooManyStrata;
+                const required: u16 = @intCast(required_wide);
                 stratum = @max(stratum, required);
             }
         }
@@ -253,7 +300,26 @@ fn stratify(program: *ast.Program, diagnostic: ?*Diagnostic) AnalyzeError!Analys
 
     var max_stratum: u16 = 0;
     for (scc_stratum) |s| max_stratum = @max(max_stratum, s);
-    return Analysis{ .stratum_count = max_stratum + 1 };
+
+    // A recursive rule with an assignment can derive fresh values forever
+    // (its value universe is no longer bounded by the input); flag it so the
+    // caller can insist on an iteration limit.
+    var recursive_assignment = false;
+    for (program.rules.items) |rule| {
+        if (rule.assigns.len == 0) continue;
+        const head_scc = tarjan.scc_id[rule.head.pred()];
+        for (rule.body) |literal| {
+            if (tarjan.scc_id[literal.atom.pred] == head_scc) {
+                recursive_assignment = true;
+                break;
+            }
+        }
+    }
+
+    return Analysis{
+        .stratum_count = max_stratum + 1,
+        .recursive_assignment = recursive_assignment,
+    };
 }
 
 const undefined_index = std.math.maxInt(u32);
@@ -281,34 +347,59 @@ const Tarjan = struct {
         return self.scc_members.items[start..end];
     }
 
-    /// Recursive step; depth is bounded by the number of predicates.
-    fn strongConnect(self: *Tarjan, node: u32) Allocator.Error!void {
+    /// Iterative with an explicit frame stack: recursion depth would be
+    /// bounded only by the number of predicates, which untrusted programs
+    /// control, so deep dependency chains must not consume native stack.
+    fn strongConnect(self: *Tarjan, root: u32) Allocator.Error!void {
+        const Frame = struct { node: u32, edge_index: usize };
+        var frames: std.ArrayListUnmanaged(Frame) = .empty;
+
+        try self.visit(root);
+        try frames.append(self.arena, .{ .node = root, .edge_index = 0 });
+
+        while (frames.items.len > 0) {
+            const frame = &frames.items[frames.items.len - 1];
+            const node = frame.node;
+            const edges = self.adjacency[node].items;
+
+            if (frame.edge_index < edges.len) {
+                const edge = edges[frame.edge_index];
+                frame.edge_index += 1;
+                if (self.index[edge.to] == undefined_index) {
+                    try self.visit(edge.to);
+                    try frames.append(self.arena, .{ .node = edge.to, .edge_index = 0 });
+                } else if (self.on_stack.isSet(edge.to)) {
+                    self.lowlink[node] = @min(self.lowlink[node], self.index[edge.to]);
+                }
+                continue;
+            }
+
+            if (self.lowlink[node] == self.index[node]) {
+                const scc: u32 = @intCast(self.scc_offsets.items.len);
+                try self.scc_offsets.append(self.arena, @intCast(self.scc_members.items.len));
+                while (true) {
+                    const member = self.stack.pop().?;
+                    self.on_stack.unset(member);
+                    self.scc_id[member] = scc;
+                    try self.scc_members.append(self.arena, member);
+                    if (member == node) break;
+                }
+            }
+
+            _ = frames.pop();
+            if (frames.items.len > 0) {
+                const parent = frames.items[frames.items.len - 1].node;
+                self.lowlink[parent] = @min(self.lowlink[parent], self.lowlink[node]);
+            }
+        }
+    }
+
+    fn visit(self: *Tarjan, node: u32) Allocator.Error!void {
         self.index[node] = self.counter;
         self.lowlink[node] = self.counter;
         self.counter += 1;
         try self.stack.append(self.arena, node);
         self.on_stack.set(node);
-
-        for (self.adjacency[node].items) |edge| {
-            if (self.index[edge.to] == undefined_index) {
-                try self.strongConnect(edge.to);
-                self.lowlink[node] = @min(self.lowlink[node], self.lowlink[edge.to]);
-            } else if (self.on_stack.isSet(edge.to)) {
-                self.lowlink[node] = @min(self.lowlink[node], self.index[edge.to]);
-            }
-        }
-
-        if (self.lowlink[node] == self.index[node]) {
-            const scc: u32 = @intCast(self.scc_offsets.items.len);
-            try self.scc_offsets.append(self.arena, @intCast(self.scc_members.items.len));
-            while (true) {
-                const member = self.stack.pop().?;
-                self.on_stack.unset(member);
-                self.scc_id[member] = scc;
-                try self.scc_members.append(self.arena, member);
-                if (member == node) break;
-            }
-        }
     }
 };
 
@@ -543,4 +634,66 @@ test "analyze: wildcard lowering is idempotent" {
 
     _ = try analyze(&program, null);
     try std.testing.expectEqual(var_count_after_first, program.rules.items[0].var_count);
+}
+
+test "analyze: deep positive dependency chains do not overflow the stack" {
+    const allocator = std.testing.allocator;
+    const Builder = @import("builder.zig").Builder;
+    const Interner = @import("interner.zig").Interner;
+
+    var program = ast.Program.init(allocator);
+    defer program.deinit();
+    var interner = Interner.init(allocator);
+    defer interner.deinit();
+    var builder = Builder{ .program = &program, .interner = &interner };
+
+    // p_i(X) :- p_{i-1}(X), deep enough that a recursive SCC walk would
+    // exhaust the native stack.
+    const depth = 100_000;
+    var name_buf: [32]u8 = undefined;
+    var prev = try builder.predicate("p0", 1);
+    for (1..depth) |i| {
+        const name = try std.fmt.bufPrint(&name_buf, "p{d}", .{i});
+        const pred = try builder.predicate(name, 1);
+        var r = builder.rule(pred);
+        const x = try r.v("X");
+        try r.head(&.{x});
+        try r.pos(prev, &.{x});
+        try r.finish();
+        prev = pred;
+    }
+
+    const analysis = try analyze(&program, null);
+    try std.testing.expectEqual(@as(u16, 1), analysis.stratum_count);
+}
+
+test "analyze: too many negation strata is an error, not a trap" {
+    const allocator = std.testing.allocator;
+    const Builder = @import("builder.zig").Builder;
+    const Interner = @import("interner.zig").Interner;
+
+    var program = ast.Program.init(allocator);
+    defer program.deinit();
+    var interner = Interner.init(allocator);
+    defer interner.deinit();
+    var builder = Builder{ .program = &program, .interner = &interner };
+
+    // p_i(X) :- e(X), not p_{i-1}(X): every step adds a stratum, past u16.
+    const depth = 65_600;
+    var name_buf: [32]u8 = undefined;
+    const e = try builder.predicate("e", 1);
+    var prev = try builder.predicate("p0", 1);
+    for (1..depth) |i| {
+        const name = try std.fmt.bufPrint(&name_buf, "p{d}", .{i});
+        const pred = try builder.predicate(name, 1);
+        var r = builder.rule(pred);
+        const x = try r.v("X");
+        try r.head(&.{x});
+        try r.pos(e, &.{x});
+        try r.neg(prev, &.{x});
+        try r.finish();
+        prev = pred;
+    }
+
+    try std.testing.expectError(error.TooManyStrata, analyze(&program, null));
 }

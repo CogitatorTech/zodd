@@ -26,6 +26,12 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
+    // Version and commit information, for the CLI and the Wasm module.
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", getVersion(b));
+    build_options.addOption([]const u8, "commit", getGitInfo(b));
+    const build_options_mod = build_options.createModule();
+
     // Unit tests (embedded in src/lib.zig)
     const lib_tests = b.addTest(.{
         .root_module = zodd_mod,
@@ -35,6 +41,37 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_lib_tests.step);
+
+    // CLI executable (see src/cli/)
+    {
+        const chilli_dep = b.dependency("chilli", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const cli_mod = b.createModule(.{
+            .root_source_file = b.path("src/cli/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        cli_mod.addImport("zodd", zodd_mod);
+        cli_mod.addImport("chilli", chilli_dep.module("chilli"));
+        cli_mod.addImport("build_options", build_options_mod);
+
+        const cli_exe = b.addExecutable(.{
+            .name = "zodd",
+            .root_module = cli_mod,
+        });
+        b.installArtifact(cli_exe);
+
+        const cli_step = b.step("cli", "Build the zodd CLI");
+        cli_step.dependOn(&b.addInstallArtifact(cli_exe, .{}).step);
+
+        const cli_tests = b.addTest(.{
+            .root_module = cli_mod,
+            .name = "cli-tests",
+        });
+        test_step.dependOn(&b.addRunArtifact(cli_tests).step);
+    }
 
     const io = b.graph.io;
 
@@ -132,19 +169,13 @@ pub fn build(b: *std.Build) void {
         });
         zodd_wasm_mod.addImport("ordered", ordered_wasm_dep.module("ordered"));
 
-        const build_options = b.addOptions();
-        const version = getVersion(b);
-        build_options.addOption([]const u8, "version", version);
-        const commit = getGitInfo(b);
-        build_options.addOption([]const u8, "commit", commit);
-
         const wasm_mod = b.createModule(.{
             .root_source_file = b.path("web/zodd_wasm.zig"),
             .target = wasm_target,
             .optimize = wasm_optimize,
         });
         wasm_mod.addImport("zodd", zodd_wasm_mod);
-        wasm_mod.addImport("build_options", build_options.createModule());
+        wasm_mod.addImport("build_options", build_options_mod);
 
         const wasm_exe = b.addExecutable(.{
             .name = "zodd",

@@ -14,12 +14,12 @@ const zodd = @import("zodd");
 //   - Variable + Relation for transitive closure
 //   - aggregate for computing total install size per package
 //   - SecondaryIndex for efficient reverse-dependency lookups
- 
+
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
- 
+
     std.debug.print("Zodd Datalog Engine - Package Dependency Resolution\n", .{});
     std.debug.print("===================================================\n\n", .{});
 

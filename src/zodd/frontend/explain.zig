@@ -111,11 +111,17 @@ pub fn writeRule(
         if (literal.negated) try writer.writeAll("not ");
         try writeAtomTemplate(writer, program, interner, rule, literal.atom);
     }
+    for (rule.assigns) |assign| {
+        try writer.writeAll(", ");
+        try writeVar(writer, rule, assign.target);
+        try writer.writeAll(" is ");
+        try writeExpr(writer, interner, rule, assign.expr);
+    }
     for (rule.compares) |compare| {
         try writer.writeAll(", ");
-        try writeTerm(writer, interner, rule, compare.lhs);
+        try writeExpr(writer, interner, rule, compare.lhs);
         try writer.print(" {s} ", .{compare.op.symbol()});
-        try writeTerm(writer, interner, rule, compare.rhs);
+        try writeExpr(writer, interner, rule, compare.rhs);
     }
     try writer.writeAll(".");
 }
@@ -188,6 +194,13 @@ pub fn writePlan(
                 try writeCmpArg(writer, interner, rule, plan.layout, cmp.rhs);
                 try writer.writeAll("\n");
             },
+            .assign => |assign| {
+                try writer.writeAll("  assign ");
+                try writeVar(writer, rule, plan.layout[assign.dest]);
+                try writer.writeAll(" = ");
+                try writeCmpArg(writer, interner, rule, plan.layout, assign.expr);
+                try writer.writeAll("\n");
+            },
         }
     }
 
@@ -206,6 +219,33 @@ fn writeCmpArg(
     switch (arg) {
         .col => |col| try writeVar(writer, rule, layout[col]),
         .constant => |value| try writeValue(writer, interner, value),
+        .binop => |binop| {
+            try writer.writeAll("(");
+            try writeCmpArg(writer, interner, rule, layout, binop.lhs);
+            try writer.print(" {s} ", .{binop.op.symbol()});
+            try writeCmpArg(writer, interner, rule, layout, binop.rhs);
+            try writer.writeAll(")");
+        },
+    }
+}
+
+/// Writes one comparison side as source-like text, parenthesizing nested
+/// arithmetic.
+fn writeExpr(
+    writer: *std.Io.Writer,
+    interner: *const Interner,
+    rule: *const ast.Rule,
+    expr: ast.Expr,
+) WriteError!void {
+    switch (expr) {
+        .term => |term| try writeTerm(writer, interner, rule, term),
+        .binop => |binop| {
+            try writer.writeAll("(");
+            try writeExpr(writer, interner, rule, binop.lhs);
+            try writer.print(" {s} ", .{binop.op.symbol()});
+            try writeExpr(writer, interner, rule, binop.rhs);
+            try writer.writeAll(")");
+        },
     }
 }
 
@@ -249,8 +289,50 @@ fn writeIndent(writer: *std.Io.Writer, depth: usize) WriteError!void {
     try writer.splatByteAll(' ', depth * 2);
 }
 
+/// Writes the evaluated value of a comparison side under a proof binding.
+/// A held comparison always evaluates, so the fallback never prints for
+/// recorded provenance.
+fn writeGroundExpr(
+    writer: *std.Io.Writer,
+    interner: *const Interner,
+    expr: ast.Expr,
+    binding: *const DynTuple,
+) WriteError!void {
+    if (groundExpr(expr, binding)) |value| {
+        try writeValue(writer, interner, value);
+    } else {
+        try writer.writeAll("?");
+    }
+}
+
+/// Evaluates a comparison side under a binding, mirroring the evaluator's
+/// arithmetic semantics. Null means the value does not exist.
+fn groundExpr(expr: ast.Expr, binding: *const DynTuple) ?dyntuple.Atom {
+    return switch (expr) {
+        .term => |term| groundTerm(term, binding),
+        .binop => |binop| blk: {
+            const lhs = groundExpr(binop.lhs, binding) orelse break :blk null;
+            const rhs = groundExpr(binop.rhs, binding) orelse break :blk null;
+            if (interner_mod.isStr(lhs) or interner_mod.isStr(rhs)) break :blk null;
+            const result = switch (binop.op) {
+                .add => std.math.add(u64, lhs, rhs) catch break :blk null,
+                .sub => std.math.sub(u64, lhs, rhs) catch break :blk null,
+                .mul => std.math.mul(u64, lhs, rhs) catch break :blk null,
+                .div => if (rhs == 0) break :blk null else lhs / rhs,
+            };
+            if (result > interner_mod.PAYLOAD_MASK) break :blk null;
+            break :blk result;
+        },
+    };
+}
+
+/// Upper bound on expanded proof levels. Proof rendering recurses once per
+/// level, so depth must stay bounded even when the caller asks for no limit.
+pub const MAX_PROOF_DEPTH = 256;
+
 /// Writes the proof tree of a derived tuple from recorded provenance.
-/// `max_depth` bounds the expanded rule levels; null means no bound.
+/// `max_depth` bounds the expanded rule levels; null and values above
+/// `MAX_PROOF_DEPTH` fall back to `MAX_PROOF_DEPTH`.
 pub fn writeProof(
     writer: *std.Io.Writer,
     program: *const ast.Program,
@@ -260,7 +342,8 @@ pub fn writeProof(
     tuple: DynTuple,
     max_depth: ?usize,
 ) WriteError!void {
-    try writeProofNode(writer, program, interner, evaluator, pred, tuple, 0, max_depth);
+    const bounded = @min(max_depth orelse MAX_PROOF_DEPTH, MAX_PROOF_DEPTH);
+    try writeProofNode(writer, program, interner, evaluator, pred, tuple, 0, bounded);
 }
 
 fn writeProofNode(
@@ -271,7 +354,7 @@ fn writeProofNode(
     pred: ast.PredId,
     tuple: DynTuple,
     depth: usize,
-    max_depth: ?usize,
+    max_depth: usize,
 ) WriteError!void {
     try writeIndent(writer, depth);
     try writeTupleAtom(writer, program, interner, pred, &tuple);
@@ -288,7 +371,7 @@ fn writeProofNode(
     switch (derivation) {
         .fact => try writer.writeAll(" (fact)\n"),
         .rule => |d| {
-            if (max_depth != null and depth >= max_depth.?) {
+            if (depth >= max_depth) {
                 try writer.writeAll(" (depth limit)\n");
                 return;
             }
@@ -309,11 +392,18 @@ fn writeProofNode(
                     try writeProofNode(writer, program, interner, evaluator, literal.atom.pred, premise, depth + 1, max_depth);
                 }
             }
+            for (rule.assigns) |assign| {
+                try writeIndent(writer, depth + 1);
+                try writeVar(writer, rule, assign.target);
+                try writer.writeAll(" = ");
+                try writeGroundExpr(writer, interner, .{ .term = .{ .variable = assign.target } }, &d.binding);
+                try writer.writeAll(" (computed)\n");
+            }
             for (rule.compares) |compare| {
                 try writeIndent(writer, depth + 1);
-                try writeValue(writer, interner, groundTerm(compare.lhs, &d.binding));
+                try writeGroundExpr(writer, interner, compare.lhs, &d.binding);
                 try writer.print(" {s} ", .{compare.op.symbol()});
-                try writeValue(writer, interner, groundTerm(compare.rhs, &d.binding));
+                try writeGroundExpr(writer, interner, compare.rhs, &d.binding);
                 try writer.writeAll(" (holds)\n");
             }
         },
@@ -437,4 +527,64 @@ test "writePlan: scan, join, anti, and checks" {
         \\  head path(X, Z)
         \\
     , writer.buffered());
+}
+
+test "writeRule: arithmetic comparison expressions" {
+    const allocator = std.testing.allocator;
+
+    var program = ast.Program.init(allocator);
+    defer program.deinit();
+    var interner = Interner.init(allocator);
+    defer interner.deinit();
+    var builder = Builder{ .program = &program, .interner = &interner };
+
+    const edge = try builder.predicate("edge", 3);
+    const light = try builder.predicate("light", 2);
+
+    // light(X, Y) :- edge(X, Y, W), (W * 2) < 100.
+    var r = builder.rule(light);
+    const x = try r.v("X");
+    const y = try r.v("Y");
+    const w = try r.v("W");
+    try r.head(&.{ x, y });
+    try r.pos(edge, &.{ x, y, w });
+    const product = try r.binExpr(.mul, .{ .term = w }, .{ .term = try builder.int(2) });
+    try r.cmpExpr(product, .lt, .{ .term = try builder.int(100) });
+    try r.finish();
+
+    var buffer: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try writeRule(&writer, &program, &interner, &program.rules.items[0]);
+    try std.testing.expectEqualStrings("light(X, Y) :- edge(X, Y, W), (W * 2) < 100.", writer.buffered());
+}
+
+test "writeRule: assignments render with is" {
+    const allocator = std.testing.allocator;
+
+    var program = ast.Program.init(allocator);
+    defer program.deinit();
+    var interner = Interner.init(allocator);
+    defer interner.deinit();
+    var builder = Builder{ .program = &program, .interner = &interner };
+
+    const edge = try builder.predicate("edge", 2);
+    const dist = try builder.predicate("dist", 2);
+
+    // dist(Y, D2) :- dist(X, D), edge(X, Y), D2 is (D + 1).
+    var r = builder.rule(dist);
+    const y = try r.v("Y");
+    const d2 = try r.v("D2");
+    const x = try r.v("X");
+    const d = try r.v("D");
+    try r.head(&.{ y, d2 });
+    try r.pos(dist, &.{ x, d });
+    try r.pos(edge, &.{ x, y });
+    const succ = try r.binExpr(.add, .{ .term = d }, .{ .term = try builder.int(1) });
+    try r.assign(d2, succ);
+    try r.finish();
+
+    var buffer: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try writeRule(&writer, &program, &interner, &program.rules.items[0]);
+    try std.testing.expectEqualStrings("dist(Y, D2) :- dist(X, D), edge(X, Y), D2 is (D + 1).", writer.buffered());
 }
