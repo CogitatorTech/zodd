@@ -766,6 +766,32 @@ test "frontend: queryDemand matches query on recursive programs" {
     }
 }
 
+test "frontend: queryDemand binds a head position computed by an assignment" {
+    // Found by differential testing against clingo: the magic guard binds
+    // the queried head position, so the rewritten rule must turn the
+    // assignment into an equality filter instead of an invalid
+    // re-assignment of a bound variable.
+    const allocator = testing.allocator;
+
+    var db = zodd.Database.init(allocator);
+    defer db.deinit();
+
+    try db.run(
+        \\b(1). b(4). b(8).
+        \\shifted(A, X) :- b(X), A is X + 3.
+    );
+
+    var hit = try db.queryDemand("shifted", &.{ zodd.Value{ .int = 7 }, null });
+    defer hit.deinit();
+    const row = hit.next() orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u64, 4), row.get(1).int);
+    try testing.expect(hit.next() == null);
+
+    var miss = try db.queryDemand("shifted", &.{ zodd.Value{ .int = 6 }, null });
+    defer miss.deinit();
+    try testing.expect(miss.next() == null);
+}
+
 test "frontend: queryDemand falls back when demand does not apply" {
     const allocator = testing.allocator;
 

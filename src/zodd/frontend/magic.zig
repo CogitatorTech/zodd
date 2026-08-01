@@ -261,7 +261,26 @@ const State = struct {
                 }
             }
             for (rule.assigns) |assign| {
-                try r.assign(try self.mapVar(&r, assign.target), try self.mapExpr(&r, assign.expr));
+                // A target bound by the magic guard cannot stay an
+                // assignment; the equality filter has the same semantics
+                // over the already-bound value, including failure.
+                var target_bound = false;
+                for (head_terms, 0..) |term, i| {
+                    if (term == .variable and term.variable == assign.target and
+                        mask & (@as(Mask, 1) << @intCast(i)) != 0)
+                    {
+                        target_bound = true;
+                    }
+                }
+                if (target_bound) {
+                    try r.cmpExpr(
+                        .{ .term = try self.mapVar(&r, assign.target) },
+                        .eq,
+                        try self.mapExpr(&r, assign.expr),
+                    );
+                } else {
+                    try r.assign(try self.mapVar(&r, assign.target), try self.mapExpr(&r, assign.expr));
+                }
             }
             for (rule.compares) |compare| {
                 try r.cmpExpr(try self.mapExpr(&r, compare.lhs), compare.op, try self.mapExpr(&r, compare.rhs));

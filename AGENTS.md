@@ -47,6 +47,8 @@ Priorities, in order:
   plans and provenance proof trees; `magic.zig` builds the demand-transformed (magic sets) program behind `Database.queryDemand`.
 - `src/cli/main.zig`: The `zodd` CLI executable (`run`, `query`, `plan`, `explain`, and `repl` subcommands), built via `zig build cli`.
 - `tests/`: Non-unit tests (`integration_tests.zig`, `regression_tests.zig`, `property_tests.zig`, `incremental_tests.zig`, `frontend_tests.zig`).
+- `tests/differential/difftest.py`: Differential testing against Clingo; random stratified programs evaluated by both engines must
+  agree. Run via `make diff-test` (needs `uv`; the Clingo dependency is declared in the root `pyproject.toml` and pinned by `uv.lock`).
 - `web/`: Web frontend. `zodd_wasm.zig` is the Wasm wrapper built by `zig build wasm`; `index.html`, `main.js`, and `style.css` are the UI;
   `smoke_test.mjs` is the Node.js smoke test run by `make web-test`.
 - `examples/`: Self-contained example programs (`e1_network_reachability.zig` through `e8_comparison_filters.zig`) built as executables via
@@ -114,6 +116,7 @@ Run the relevant targets for any change:
 | Examples       | `make example`                                 | Builds and runs every example under `examples/`                       |
 | Single example | `make example EXAMPLE=e1_network_reachability` | Runs one example program                                              |
 | Docs           | `make docs`                                    | Generates API docs into `docs/api`                                    |
+| Differential   | `make diff-test`                               | Compares Zodd against Clingo on random programs (needs `uv`)          |
 | Everything     | `make all`                                     | Runs `build`, `test`, `lint`, and `docs`                              |
 
 ## First Contribution Flow

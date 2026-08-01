@@ -61,3 +61,23 @@ jobs:
           zig build wasm
           cp zig-out/web/zodd.wasm web/zodd.wasm
           node web/smoke_test.mjs
+
+  differential:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Zig 0.16.0
+        run: |
+          curl -sSfL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ
+          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build the Zodd CLI
+        run: zig build cli
+
+      - name: Run differential tests against Clingo
+        run: uv run tests/differential/difftest.py --runs 500

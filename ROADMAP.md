@@ -44,4 +44,5 @@ This document lists the completed and planned features for Zodd.
 
 - [x] Unit tests in each module
 - [x] Integration, regression, property-based tests, etc. in `tests` directory
+- [x] Differential testing against clingo (`make diff-test`; random stratified programs must agree between the engines)
 - [ ] Benchmarks
