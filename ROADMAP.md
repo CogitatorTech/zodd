@@ -25,24 +25,22 @@ This document lists the completed and planned features for Zodd.
 - [x] Recursion limits
 - [x] Persistence
 - [x] Secondary indices
-- [x] Incremental maintenance (`Database.update` after `addFact`/`retract`: additions propagate as semi-naive deltas, deletions and
-  negation/aggregate effects recompute only the affected strata; tuple-level deletion (DRed) is a possible future refinement)
-- [x] Parallel execution (opt-in worker threads per fixed-point round via `Database.parallelism`; identical results to sequential evaluation)
-- [x] CLI (`zodd run`, `query` with demand-driven evaluation, `plan`, `explain`, and a `repl`, built on Chilli)
+- [x] Incremental maintenance support
+- [x] Parallel execution support
+- [x] CLI (`zodd run`, `query` with demand-driven evaluation, `plan`, `explain`, and a `repl`)
 - [ ] Streaming input
 - [x] Rule DSL (textual Datalog frontend with a parser, a builder API, stratified negation, and aggregates)
 - [x] Comparison operators (`<`, `<=`, `>`, `>=`, `=`, and `!=` as body filters)
 - [x] Arithmetic in comparison filters (`+`, `-`, `*`, `/`, and parentheses on either side of a comparison)
-- [x] Arithmetic assignments (`D2 is D + 1` binds a fresh variable per tuple; recursive use requires an iteration limit)
+- [x] Arithmetic assignments support
 - [x] Query planner
-- [x] Explain (rule plan rendering and tuple provenance proof trees)
-- [x] Magic sets (demand-driven queries via `Database.queryDemand`, with a full-evaluation fallback for negation and aggregates)
-- [x] Fact retraction (`Database.retract` removes a base fact and recomputes on the next solve or query)
-- [x] Predicate arity up to 16 columns
+- [x] Explain support
+- [x] Magic sets support
+- [x] Fact retraction support
 
 ### Development and Testing
 
 - [x] Unit tests in each module
 - [x] Integration, regression, property-based tests, etc. in `tests` directory
-- [x] Differential testing against clingo (`make diff-test`; random stratified programs must agree between the engines)
+- [x] Differential testing against Clingo
 - [ ] Benchmarks
