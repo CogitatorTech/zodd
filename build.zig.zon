@@ -2,19 +2,19 @@
     .name = .zodd,
     .version = "0.1.0-alpha.7",
     .fingerprint = 0x2d03181bdd24914c, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .minish = .{
-            .url = "https://github.com/CogitatorTech/minish/archive/refs/tags/v0.3.0.tar.gz",
-            .hash = "minish-0.3.0-SQtSTYI3AgCxWdWbKxS_lvmfbp0wJk29ZW5C9CozJaxm",
+            .url = "https://github.com/CogitatorTech/minish/archive/refs/tags/v0.5.0.tar.gz",
+            .hash = "minish-0.5.0-SQtSTXUkAwA1iUHhQRCfM-092BYRlYDLTFCSodBi_EFq",
         },
         .ordered = .{
-            .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.2.1.tar.gz",
-            .hash = "ordered-0.2.1-Gy41sDCgAgA_QUoMf8Upew_Yx8sAPe7Fw_A2v5qP8GMK",
+            .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.3.0.tar.gz",
+            .hash = "ordered-0.3.0-Gy41sLOaAgCmQ0W-T2Z-MWEyn-l3MsrEZfE0oS2uAJxE",
         },
         .chilli = .{
-            .url = "https://github.com/CogitatorTech/chilli/archive/refs/tags/v0.3.2.tar.gz",
-            .hash = "chilli-0.3.2-c19PrireAQAXEfA7xrmJW2lrSiNiuuG8wtJI-MJVZgFU",
+            .url = "https://github.com/CogitatorTech/chilli/archive/refs/tags/v0.4.0.tar.gz",
+            .hash = "chilli-0.4.0-c19PrpzYAQAByfO0ayR5w2mpw8ncare-Lk6Uu0E8tjwf",
         },
     },
     .paths = .{ "build.zig", "build.zig.zon", "src", "LICENSE", "README.md" },

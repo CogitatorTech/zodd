@@ -11,7 +11,7 @@
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/zodd/tree/main/examples)
 [![API Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://cogitatortech.github.io/zodd/api/#zodd.lib)
 [![Web Frontend](https://img.shields.io/badge/web_frontend-try-orange?style=flat&labelColor=282c34&logo=webassembly)](https://CogitatorTech.github.io/zodd/)
-[![Zig](https://img.shields.io/badge/zig-0.16.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
+[![Zig](https://img.shields.io/badge/zig-0.17.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/release/CogitatorTech/zodd.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/zodd/releases/latest)
 
 A small embeddable Datalog engine in Zig
@@ -103,7 +103,7 @@ zig fetch --save=zodd "https://github.com/CogitatorTech/zodd/archive/<branch_or_
 Replace `<branch_or_tag>` with the branch or tag you want to use, such as `main` or `v0.1.0`.
 
 > [!NOTE]
-> Zodd is developed and tested with Zig version 0.16.0.
+> Zodd is developed and tested with Zig version 0.17.0.
 
 #### Build Configuration
 
