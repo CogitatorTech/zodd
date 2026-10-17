@@ -9,8 +9,8 @@
             .hash = "minish-0.5.0-SQtSTXUkAwA1iUHhQRCfM-092BYRlYDLTFCSodBi_EFq",
         },
         .ordered = .{
-            .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.3.0.tar.gz",
-            .hash = "ordered-0.3.0-Gy41sLOaAgCmQ0W-T2Z-MWEyn-l3MsrEZfE0oS2uAJxE",
+            .url = "https://github.com/CogitatorTech/ordered/archive/refs/tags/v0.3.1.tar.gz",
+            .hash = "ordered-0.3.1-Gy41sLuaAgAXViYYrL307WTMx5Jg3iukiVAOlQvATkZe",
         },
         .chilli = .{
             .url = "https://github.com/CogitatorTech/chilli/archive/refs/tags/v0.4.0.tar.gz",
