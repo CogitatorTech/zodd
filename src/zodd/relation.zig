@@ -200,7 +200,7 @@ pub fn Relation(comptime Tuple: type) type {
             if (field_info == .pointer) {
                 return std.math.order(@intFromPtr(a), @intFromPtr(b));
             } else if (field_info == .@"enum") {
-                return std.math.order(@intFromEnum(a), @intFromEnum(b));
+                return std.math.order(@backingInt(a), @backingInt(b));
             } else if (field_info == .float) {
                 // IEEE 754 total order via the bit-pattern trick, since
                 // std.math.order is unreachable for NaN operands. NaN sorts
@@ -212,8 +212,8 @@ pub fn Relation(comptime Tuple: type) type {
             }
         }
 
-        fn floatSortKey(comptime T: type, x: T) std.meta.Int(.unsigned, @bitSizeOf(T)) {
-            const U = std.meta.Int(.unsigned, @bitSizeOf(T));
+        fn floatSortKey(comptime T: type, x: T) @Int(.unsigned, @bitSizeOf(T)) {
+            const U = @Int(.unsigned, @bitSizeOf(T));
             const sign_bit = @as(U, 1) << (@bitSizeOf(T) - 1);
             const bits: U = @bitCast(x);
             return if (bits & sign_bit != 0) ~bits else bits | sign_bit;
@@ -223,7 +223,7 @@ pub fn Relation(comptime Tuple: type) type {
         pub fn compareTuples(a: Tuple, b: Tuple) std.math.Order {
             const info = @typeInfo(Tuple);
             if (info == .@"struct" and info.@"struct".is_tuple) {
-                inline for (0..info.@"struct".fields.len) |i| {
+                inline for (0..info.@"struct".field_names.len) |i| {
                     const a_field = a[i];
                     const b_field = b[i];
                     const order = orderField(@TypeOf(a_field), a_field, b_field);
@@ -253,8 +253,8 @@ pub fn Relation(comptime Tuple: type) type {
                 .int, .float, .bool, .@"enum" => true,
                 .array => |info| isSerializableType(info.child),
                 .@"struct" => |info| blk: {
-                    inline for (info.fields) |field| {
-                        if (!isSerializableType(field.type)) break :blk false;
+                    inline for (info.field_types) |field_type| {
+                        if (!isSerializableType(field_type)) break :blk false;
                     }
                     break :blk true;
                 },
@@ -267,7 +267,7 @@ pub fn Relation(comptime Tuple: type) type {
                 .int => try writer.writeInt(T, value, .little),
                 .bool => try writer.writeInt(u8, if (value) 1 else 0, .little),
                 .float => blk: {
-                    const IntType = std.meta.Int(.unsigned, @bitSizeOf(T));
+                    const IntType = @Int(.unsigned, @bitSizeOf(T));
                     const bits: IntType = @as(IntType, @bitCast(value));
                     try writer.writeInt(IntType, bits, .little);
                     break :blk;
@@ -275,7 +275,7 @@ pub fn Relation(comptime Tuple: type) type {
                 .@"enum" => blk: {
                     const info = @typeInfo(T).@"enum";
                     const Tag = info.tag_type;
-                    try writer.writeInt(Tag, @intFromEnum(value), .little);
+                    try writer.writeInt(Tag, @backingInt(value), .little);
                     break :blk;
                 },
                 .array => |info| blk: {
@@ -285,8 +285,8 @@ pub fn Relation(comptime Tuple: type) type {
                     break :blk;
                 },
                 .@"struct" => |info| blk: {
-                    inline for (info.fields) |field| {
-                        try writeValue(field.type, writer, @field(value, field.name));
+                    inline for (info.field_types, info.field_names) |field_type, field_name| {
+                        try writeValue(field_type, writer, @field(value, field_name));
                     }
                     break :blk;
                 },
@@ -299,7 +299,7 @@ pub fn Relation(comptime Tuple: type) type {
                 .int => try reader.takeInt(T, .little),
                 .bool => (try reader.takeInt(u8, .little)) != 0,
                 .float => blk: {
-                    const IntType = std.meta.Int(.unsigned, @bitSizeOf(T));
+                    const IntType = @Int(.unsigned, @bitSizeOf(T));
                     const bits = try reader.takeInt(IntType, .little);
                     break :blk @as(T, @bitCast(bits));
                 },
@@ -319,8 +319,8 @@ pub fn Relation(comptime Tuple: type) type {
                 },
                 .@"struct" => |info| blk: {
                     var result: T = undefined;
-                    inline for (info.fields) |field| {
-                        @field(result, field.name) = try readValue(field.type, reader);
+                    inline for (info.field_types, info.field_names) |field_type, field_name| {
+                        @field(result, field_name) = try readValue(field_type, reader);
                     }
                     break :blk result;
                 },

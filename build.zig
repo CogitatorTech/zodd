@@ -77,7 +77,7 @@ pub fn build(b: *std.Build) void {
 
     // Discover and add tests from tests/ directory
     // (only available when developing zodd, not when used as a dependency)
-    if (b.build_root.handle.openDir(io, "tests", .{ .iterate = true })) |tests_dir| {
+    if (b.root.openDir(io, "tests", .{ .iterate = true })) |tests_dir| {
         // Lazy-load Minish dependency (only needed for property tests)
         const minish_dep = b.dependency("minish", .{
             .target = target,
@@ -85,6 +85,7 @@ pub fn build(b: *std.Build) void {
         });
 
         var dir = tests_dir;
+        defer dir.close(io);
         var it = dir.iterate();
         while (it.next(io) catch null) |entry| {
             if (entry.kind != .file) continue;
@@ -115,8 +116,9 @@ pub fn build(b: *std.Build) void {
     } else |_| {}
 
     // Discover and add examples from examples/ directory
-    if (b.build_root.handle.openDir(io, "examples", .{ .iterate = true })) |examples_dir| {
+    if (b.root.openDir(io, "examples", .{ .iterate = true })) |examples_dir| {
         var dir = examples_dir;
+        defer dir.close(io);
         const run_all_step = b.step("run-all", "Run all examples");
 
         var it = dir.iterate();
@@ -207,7 +209,7 @@ pub fn build(b: *std.Build) void {
 }
 
 fn getVersion(b: *std.Build) []const u8 {
-    const zon_content = b.build_root.handle.readFileAlloc(b.graph.io, "build.zig.zon", b.allocator, .unlimited) catch return "unknown";
+    const zon_content = b.root.root_dir.handle.readFileAlloc(b.graph.io, "build.zig.zon", b.allocator, .unlimited) catch return "unknown";
     if (std.mem.indexOf(u8, zon_content, ".version = \"")) |index| {
         const start = index + ".version = \"".len;
         if (std.mem.indexOfScalarPos(u8, zon_content, start, '"')) |end| {

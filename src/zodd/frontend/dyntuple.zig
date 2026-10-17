@@ -25,7 +25,8 @@ pub const MAX_ARITY = 16;
 /// The single tuple type used by all frontend relations: a tuple struct of
 /// `MAX_ARITY` `u64` fields. Columns at or past a predicate's arity are
 /// always zero, so sorting and deduplication in `Relation` stay correct.
-pub const DynTuple = @Tuple(&[_]type{Atom} ** MAX_ARITY);
+const tuple_types: [MAX_ARITY]type = @splat(Atom);
+pub const DynTuple = @Tuple(&tuple_types);
 
 /// A `DynTuple` with every column set to zero.
 pub const zero_tuple: DynTuple = std.mem.zeroes(DynTuple);

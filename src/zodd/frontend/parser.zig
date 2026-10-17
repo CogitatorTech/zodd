@@ -240,12 +240,7 @@ const Parser = struct {
     }
 
     fn aggFunc(name: []const u8) ?ast.AggFunc {
-        inline for (@typeInfo(ast.AggFunc).@"enum".fields) |field| {
-            if (std.mem.eql(u8, name, field.name)) {
-                return @field(ast.AggFunc, field.name);
-            }
-        }
-        return null;
+        return std.meta.stringToEnum(ast.AggFunc, name);
     }
 
     fn fact(self: *Parser, name_token: Token, args: []const Arg) ParseError!void {
