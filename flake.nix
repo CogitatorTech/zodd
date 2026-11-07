@@ -25,6 +25,8 @@
               zig_0_17
               gnumake
               git
+              uv
+              python315
               pre-commit
               nixpkgs-fmt
             ];
